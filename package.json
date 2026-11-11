@@ -26,6 +26,7 @@
     "@openzeppelin/contracts": "^5.1.0",
     "@openzeppelin/contracts-upgradeable": "^5.1.0",
     "@primuslabs/zktls-contracts": "^0.1.0",
+    "forge-std": "github:foundry-rs/forge-std#v1.17.0",
     "vite": "^6.4.6"
   },
   "engines": {

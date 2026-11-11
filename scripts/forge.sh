@@ -3,5 +3,5 @@
 # drives and solc cannot read them, so they are removed first.
 set -e
 cd "$(dirname "$0")/../contracts"
-find . ../node_modules/@primuslabs ../node_modules/@openzeppelin -name '._*' -type f -delete 2>/dev/null || true
+find . ../node_modules/@primuslabs ../node_modules/@openzeppelin ../node_modules/forge-std -name '._*' -type f -delete 2>/dev/null || true
 exec forge "$@"
