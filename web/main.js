@@ -386,6 +386,9 @@ function render() {
 
   $("prove").disabled = !connected || busy || !config?.registry;
   $("save").disabled = !connected || busy || !attestation;
+  if (connected && config && !config.registry) {
+    setStatus("status-2", `Proofs open once the HandleSeal contract is deployed on ${config.chain.name}`);
+  }
 
   renderStepper(connected, savedAndIdle);
 
