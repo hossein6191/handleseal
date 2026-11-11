@@ -46,7 +46,15 @@
       </nav>
       <div class="top-right">
         <span id="network" class="pill" hidden><span class="dot"></span><span id="network-name"></span></span>
-        <button id="connect" class="btn btn-ghost btn-small">Connect wallet</button>
+        <div class="wallet-menu">
+          <button id="connect" class="btn btn-ghost btn-small" aria-haspopup="menu" aria-expanded="false">Connect wallet</button>
+          <div class="menu" id="wallet-dropdown" role="menu" hidden>
+            <p class="menu-head mono" id="menu-address"></p>
+            <button type="button" role="menuitem" id="menu-copy">Copy address</button>
+            <a role="menuitem" id="menu-explorer" target="_blank" rel="noreferrer" hidden>View on explorer</a>
+            <button type="button" role="menuitem" id="menu-disconnect" class="danger">Disconnect</button>
+          </div>
+        </div>
       </div>
     </header>
 

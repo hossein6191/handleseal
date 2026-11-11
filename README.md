@@ -128,18 +128,29 @@ npm run test:e2e         # needs Anvil running: npm run chain
 
 ## Note on Primus testnet verifiers
 
-Found while building this, checked on Nov 11, 2026:
+Found while building this, checked on Nov 11, 2026 with `_attestors(uint256)` and `verifyAttestation` through
+`eth_call`:
 
 - `@primuslabs/zktls-js-sdk` 0.3.15 verifies attestations against attestor
   `0x5Ed3176045F68617B0958a61ac1868875C98C14d` (`PADOADDRESSMAP.production` in `dist/config/constants.js`).
-- The BNB Chain mainnet verifier `0xf3c20a5216d669c521ffe3724c1439ae0897ac33` trusts that attestor.
-- The testnet verifiers do not: BNB testnet `0x4620362a803f82b7231b18e09abc5d400a7891fb`, Sepolia and
-  opBNB testnet `0x3760ab354507a29a9f5c65a66c74353fd86393fa` (read with `_attestors(uint256)`).
-- A real attestation from the X template, made with the SDK and signed by `0x5Ed3…C14d`, is rejected by
-  the BNB testnet verifier with `Invalid signature` and accepted by the BNB Chain mainnet verifier
-  (`verifyAttestation` through `eth_call`).
+  A real attestation from the X template, made through this app, is signed by that attestor.
+- The BNB Chain mainnet verifier `0xF3C20A5216d669C521ffe3724C1439aE0897aC33` trusts that attestor and accepts
+  the attestation.
+- Every testnet verifier listed on the [Onchain Interaction](https://docs.primuslabs.xyz/enterprise/onchain-interaction/overview)
+  page that answered rejects it with `Invalid signature`, because they only trust
+  `0xDB736B13E2f522dBE18B2015d0291E4b193D8eF6`:
+
+  | Testnet | Verifier |
+  | --- | --- |
+  | BNB Chain Testnet | `0xBc074EbE6D39A97Fb35726832300a950e2D94324` |
+  | Sepolia, opBNB Testnet | `0x3760aB354507a29a9F5c65A66C74353fd86393FA` |
+  | Base Sepolia, Unichain Sepolia, X Layer Testnet | `0xCE7cefB3B5A7eB44B59F60327A53c9Ce53B0afdE` |
+
+  The newer BNB testnet deployment from the contracts repo broadcast files,
+  `0x4620362a803f82b7231b18e09abc5d400a7891fb`, rejects it too.
+- The Monad Testnet address in the docs, `0x1Ad7fD53206fDc3979C672C0466A1c48AF47B431`, has no contract code.
 - The [Supported Networks](https://docs.primuslabs.xyz/enterprise/zk-tls-sdk/solidity/support) page lists
-  `0x0000` for every network.
+  `0x0000` for every network, and the zktls-contracts README links to a docs URL that no longer exists.
 
 So on testnets and on Anvil, `Deploy.s.sol` deploys its own copy of the Primus verifier (the code from
 `@primuslabs/zktls-contracts`) that trusts only the SDK attestor. On BNB Chain mainnet it uses the official

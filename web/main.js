@@ -28,6 +28,7 @@ const state = {
   primus: new PrimusZKTLS(),
   primusReady: false,
   busy: false,
+  disconnected: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -375,7 +376,8 @@ function render() {
   const connected = Boolean(account && onRightChain);
   const savedAndIdle = connected && Boolean(linked) && !attestation;
 
-  $("connect").textContent = account ? short(account) : "Connect wallet";
+  $("connect").textContent = account ? `${short(account)} ▾` : "Connect wallet";
+  if (!account) closeMenu();
   $("connect-step").textContent = account && !onRightChain ? `Switch to ${config?.chain.name}` : "Connect wallet";
   $("connect-step").hidden = connected;
   $("fund").hidden = !(connected && config?.chain.id === 31337);
@@ -455,10 +457,30 @@ async function ensureChain() {
   }
 }
 
+// Wallets keep the site authorized after "Disconnect", so remember the choice and ignore the
+// authorized account until the user connects again.
+const DISCONNECTED_KEY = "handleseal:disconnected";
+function isDisconnected() {
+  try {
+    return localStorage.getItem(DISCONNECTED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function setDisconnected(value) {
+  try {
+    if (value) localStorage.setItem(DISCONNECTED_KEY, "1");
+    else localStorage.removeItem(DISCONNECTED_KEY);
+  } catch {
+    // storage blocked, the choice only lasts for this page
+  }
+  state.disconnected = value;
+}
+
 async function syncWallet() {
   if (!window.ethereum) return;
   const provider = new BrowserProvider(window.ethereum);
-  const accounts = await provider.send("eth_accounts", []);
+  const accounts = state.disconnected ? [] : await provider.send("eth_accounts", []);
   const network = await provider.getNetwork();
   const account = accounts[0] ? getAddress(accounts[0]) : null;
 
@@ -488,10 +510,47 @@ async function connect() {
   try {
     setStatus("status-1", "Waiting for your wallet…", "busy");
     await window.ethereum.request({ method: "eth_requestAccounts" });
+    setDisconnected(false);
     await ensureChain();
     await syncWallet();
   } catch (err) {
     setStatus("status-1", explain(err), "err");
+  }
+}
+
+async function disconnect() {
+  closeMenu();
+  setDisconnected(true);
+  try {
+    // Supported by MetaMask and some other wallets; others simply keep the permission.
+    await window.ethereum?.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
+  } catch {
+    // not supported, the local flag above is enough
+  }
+  Object.assign(state, { account: null, signer: null, onRightChain: false, attestation: null, provenHandle: null, linked: null });
+  for (const id of ["status-1", "status-2", "status-3"]) setStatus(id, "");
+  setStatus("status-2", primusHint());
+  render();
+  toast("Wallet disconnected");
+}
+
+function closeMenu() {
+  $("wallet-dropdown").hidden = true;
+  $("connect").setAttribute("aria-expanded", "false");
+}
+
+function onWalletButton(event) {
+  if (!state.account) return connect();
+  event.stopPropagation();
+  const menu = $("wallet-dropdown");
+  const open = menu.hidden;
+  menu.hidden = !open;
+  $("connect").setAttribute("aria-expanded", String(open));
+  if (open) {
+    $("menu-address").textContent = state.account;
+    const explorer = explorerUrl("address", state.account);
+    $("menu-explorer").hidden = !explorer;
+    if (explorer) $("menu-explorer").href = explorer;
   }
 }
 
@@ -656,8 +715,20 @@ async function loadProfile() {
 }
 
 async function start() {
-  $("connect").addEventListener("click", connect);
+  state.disconnected = isDisconnected();
+  $("connect").addEventListener("click", onWalletButton);
   $("connect-step").addEventListener("click", connect);
+  $("menu-disconnect").addEventListener("click", disconnect);
+  $("menu-copy").addEventListener("click", async () => {
+    await navigator.clipboard.writeText(state.account);
+    closeMenu();
+    toast("Address copied");
+  });
+  $("menu-explorer").addEventListener("click", closeMenu);
+  document.addEventListener("click", (e) => {
+    if (!$("wallet-dropdown").hidden && !e.target.closest(".wallet-menu")) closeMenu();
+  });
+  document.addEventListener("keydown", (e) => e.key === "Escape" && closeMenu());
   $("fund").addEventListener("click", fundLocal);
   $("prove").addEventListener("click", prove);
   $("save").addEventListener("click", save);
