@@ -26,5 +26,8 @@
     "@openzeppelin/contracts-upgradeable": "^5.1.0",
     "@primuslabs/zktls-contracts": "^0.1.0",
     "vite": "^6.4.6"
+  },
+  "engines": {
+    "node": ">=22.9"
   }
 }

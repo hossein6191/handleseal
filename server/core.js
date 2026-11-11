@@ -1,7 +1,6 @@
 // Shared by the local Express server (server/index.js) and the Vercel functions (api/).
 import { readFileSync, existsSync } from "node:fs";
 import { ethers } from "ethers";
-import { PrimusZKTLS } from "@primuslabs/zktls-js-sdk";
 import { CHAINS } from "../web/chains.js";
 
 // "X Account Ownership" template from the Primus Developer Hub Templates Market.
@@ -21,7 +20,8 @@ export function readEnv() {
     appId: process.env.PRIMUS_APP_ID?.trim(),
     appSecret: process.env.PRIMUS_APP_SECRET?.trim(),
     templateId: process.env.PRIMUS_TEMPLATE_ID?.trim() || X_TEMPLATE_ID,
-    chainId: Number(process.env.CHAIN_ID || 31337),
+    // Local runs default to Anvil, Vercel deployments to BNB Smart Chain Testnet.
+    chainId: Number(process.env.CHAIN_ID || (process.env.VERCEL ? 97 : 31337)),
   };
   const missing = [];
   if (!env.appId) missing.push("PRIMUS_APP_ID");
@@ -54,13 +54,24 @@ export function getConfig() {
   };
 }
 
-let primus;
-async function signer(env) {
-  if (!primus) {
-    primus = new PrimusZKTLS();
+// The SDK is loaded on first use, so /api/config keeps working even if it fails to load,
+// and the failure reaches the caller as a readable error.
+let primusPromise;
+function signer(env) {
+  primusPromise ??= (async () => {
+    let PrimusZKTLS;
+    try {
+      ({ PrimusZKTLS } = await import("@primuslabs/zktls-js-sdk"));
+    } catch (err) {
+      primusPromise = undefined;
+      console.error("Loading @primuslabs/zktls-js-sdk failed:", err);
+      throw new HttpError(500, `Could not load the Primus SDK on the server: ${err.message}`);
+    }
+    const primus = new PrimusZKTLS();
     await primus.init(env.appId, env.appSecret); // app server mode, no extension needed
-  }
-  return primus;
+    return primus;
+  })();
+  return primusPromise;
 }
 
 /// Signs a zkTLS request, but only for this app, this template and a real wallet,
