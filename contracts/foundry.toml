@@ -1,0 +1,25 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib", "../node_modules"]
+solc_version = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
+
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "@primuslabs/zktls-contracts/=../node_modules/@primuslabs/zktls-contracts/",
+  "@openzeppelin/contracts/=../node_modules/@openzeppelin/contracts/",
+  "@openzeppelin/contracts-upgradeable/=../node_modules/@openzeppelin/contracts-upgradeable/"
+]
+
+[rpc_endpoints]
+local = "http://127.0.0.1:8545"
+bsc_testnet = "https://bsc-testnet-rpc.publicnode.com"
+bsc = "https://bsc-rpc.publicnode.com"
+
+[lint]
+lint_on_build = false
