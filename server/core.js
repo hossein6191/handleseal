@@ -84,54 +84,101 @@ export async function signRequest(signParams) {
 }
 
 // ---------------------------------------------------------------------------
-// X profiles (name, picture, bio) through twitterapi.io, for display only.
+// X profiles (name, picture, bio), for display only: FxTwitter (free), then twitterapi.io if a key is set.
 // The seal itself never depends on this data.
 // ---------------------------------------------------------------------------
 
 const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
-const MISS_TTL_MS = 5 * 60 * 1000;
+const MISS_TTL_MS = 60 * 1000;
 const profileCache = new Map(); // lowercase handle -> { until, data }
+
+function profileFrom({ handle, name, picture, bio, followers, blueVerified }) {
+  // Only accept pictures from X's own image host.
+  const avatar = typeof picture === "string" && picture.startsWith("https://pbs.twimg.com/") ? picture.replace("_normal.", "_400x400.") : null;
+  return {
+    available: true,
+    handle,
+    name: String(name ?? "").slice(0, 60),
+    avatar,
+    bio: String(bio ?? "").slice(0, 200),
+    followers: Number(followers) || 0,
+    blueVerified: Boolean(blueVerified),
+  };
+}
+
+/// Free, no key: the public FxTwitter API (https://github.com/FxEmbed/FxEmbed).
+/// It often answers "User not found" for accounts that exist, so a 404 is retried a few times.
+async function fromFxTwitter(handle) {
+  const deadline = Date.now() + 8000; // stay well inside the serverless time limit
+  let res;
+  let json;
+  for (let attempt = 1; attempt <= 4 && deadline - Date.now() > 600; attempt++) {
+    try {
+      res = await fetch(`https://api.fxtwitter.com/${encodeURIComponent(handle)}`, {
+        headers: { "User-Agent": "HandleSeal profile lookup" },
+        signal: AbortSignal.timeout(Math.min(3500, deadline - Date.now())),
+      });
+      json = await res.json().catch(() => ({}));
+      if (json?.user?.screen_name || (res.status !== 404 && json?.code !== 404)) break;
+    } catch {
+      res = undefined; // timed out, try again while time is left
+    }
+    if (attempt < 4) await new Promise((r) => setTimeout(r, 150 * attempt));
+  }
+  const u = json?.user;
+  if (!res) throw new Error("FxTwitter did not answer in time");
+  if (json?.code === 404 || res.status === 404) return { available: false, reason: "not found" };
+  if (!res.ok || !u?.screen_name) throw new Error(`FxTwitter answered ${res.status}`);
+  return profileFrom({
+    handle: u.screen_name,
+    name: u.name,
+    picture: u.avatar_url,
+    bio: u.description,
+    followers: u.followers,
+    blueVerified: u.verification?.verified,
+  });
+}
+
+/// Optional paid fallback: twitterapi.io with TWITTER_API_KEY.
+async function fromTwitterApiIo(handle, apiKey) {
+  const res = await fetch(`https://api.twitterapi.io/twitter/user/info?userName=${encodeURIComponent(handle)}`, {
+    headers: { "X-API-Key": apiKey },
+    signal: AbortSignal.timeout(6000),
+  });
+  const json = await res.json().catch(() => ({}));
+  const u = json?.data;
+  if (!res.ok || !u?.userName) throw new Error(`twitterapi.io answered ${res.status}: ${json?.message ?? ""}`);
+  return profileFrom({
+    handle: u.userName,
+    name: u.name,
+    picture: u.profilePicture,
+    bio: u.description,
+    followers: u.followers,
+    blueVerified: u.isBlueVerified,
+  });
+}
 
 export async function getXProfile(handle) {
   handle = String(handle ?? "").replace(/^@/, "");
   if (!HANDLE_RE.test(handle)) throw new HttpError(400, "Invalid handle");
-  const apiKey = process.env.TWITTER_API_KEY?.trim();
-  if (!apiKey) return { available: false, reason: "not configured" };
 
   const cacheKey = handle.toLowerCase();
   const hit = profileCache.get(cacheKey);
   if (hit && hit.until > Date.now()) return hit.data;
 
-  let data;
-  try {
-    const res = await fetch(`https://api.twitterapi.io/twitter/user/info?userName=${encodeURIComponent(handle)}`, {
-      headers: { "X-API-Key": apiKey },
-      signal: AbortSignal.timeout(6000),
-    });
-    const json = await res.json().catch(() => ({}));
-    const u = json?.data;
-    if (res.ok && u?.userName) {
-      const avatar = typeof u.profilePicture === "string" && u.profilePicture.startsWith("https://pbs.twimg.com/")
-        ? u.profilePicture.replace("_normal.", "_400x400.")
-        : null;
-      data = {
-        available: true,
-        handle: u.userName,
-        name: String(u.name ?? "").slice(0, 60),
-        avatar,
-        bio: String(u.description ?? "").slice(0, 200),
-        followers: Number(u.followers) || 0,
-        blueVerified: Boolean(u.isBlueVerified),
-      };
-    } else {
-      const reason = res.status === 402 ? "no credits" : res.status === 401 ? "bad key" : "not found";
-      if (res.status !== 404 && res.ok === false) console.warn(`X profile lookup failed (${res.status}): ${json?.message ?? ""}`);
-      data = { available: false, reason };
+  const sources = [() => fromFxTwitter(handle)];
+  const apiKey = process.env.TWITTER_API_KEY?.trim();
+  if (apiKey) sources.push(() => fromTwitterApiIo(handle, apiKey));
+
+  let data = { available: false, reason: "lookup failed" };
+  for (const source of sources) {
+    try {
+      data = await source();
+      break;
+    } catch (err) {
+      console.warn("X profile lookup failed:", err.message);
     }
-  } catch (err) {
-    console.warn("X profile lookup failed:", err.message);
-    data = { available: false, reason: "lookup failed" };
   }
   profileCache.set(cacheKey, { until: Date.now() + (data.available ? PROFILE_TTL_MS : MISS_TTL_MS), data });
   return data;

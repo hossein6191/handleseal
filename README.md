@@ -66,9 +66,10 @@ test/e2e-local.js   SDK encoding vs onchain encoding, full register flow on Anvi
 ```
 
 The site has a public profile for every handle at `/?handle=name`, a "Recently sealed" timeline read from
-the contract (`recentLinks`), a lookup by handle or wallet, and a Share on X button after sealing. With an
-optional [twitterapi.io](https://twitterapi.io) key (`TWITTER_API_KEY`, server side only) it also shows X names,
-pictures and bios. That data is for display only and is cached for 6 hours; the seal depends only on the proof.
+the contract (`recentLinks`), a lookup by handle or wallet, and a Share on X button after sealing. It also shows X
+names, pictures and bios from the free [FxTwitter](https://github.com/FxEmbed/FxEmbed) API, with an optional
+[twitterapi.io](https://twitterapi.io) key (`TWITTER_API_KEY`, server side only) as a fallback. That data is for
+display only and is cached for 6 hours; the seal depends only on the proof.
 
 ## Run it locally
 

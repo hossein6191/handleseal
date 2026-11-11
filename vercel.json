@@ -4,6 +4,9 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/*.js": { "includeFiles": "contracts/deployments/**" }
+    "api/*.js": {
+      "maxDuration": 15,
+      "includeFiles": "contracts/deployments/**"
+    }
   }
 }

@@ -104,8 +104,10 @@ function paintAvatar(node, handle) {
   node.classList.toggle("empty", !handle);
   if (!handle) return;
   getProfile(handle).then((p) => {
-    if (!p?.avatar || node.dataset.for !== handle.toLowerCase()) return;
-    const img = el("img", { src: p.avatar, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+    if (node.dataset.for !== handle.toLowerCase()) return;
+    // Picture from the profile service, or from unavatar.io when the service had no answer.
+    const src = p?.avatar || `https://unavatar.io/x/${encodeURIComponent(handle)}?fallback=false`;
+    const img = el("img", { src, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
     img.onerror = () => img.remove();
     node.append(img);
   });

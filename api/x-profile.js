@@ -9,8 +9,8 @@ export default async function handler(req, res) {
   }
   try {
     const profile = await core.getXProfile(req.query?.handle);
-    // Let the CDN keep found profiles for 6 hours, misses for 5 minutes, to save API credits.
-    res.setHeader("Cache-Control", profile.available ? "public, s-maxage=21600, stale-while-revalidate=86400" : "public, s-maxage=300");
+    // Let the CDN keep found profiles for 6 hours and misses for a minute.
+    res.setHeader("Cache-Control", profile.available ? "public, s-maxage=21600, stale-while-revalidate=86400" : "public, s-maxage=60");
     res.status(200).json(profile);
   } catch (err) {
     const { status, body } = core.errorResponse(err);
