@@ -1,6 +1,7 @@
 import { PrimusZKTLS } from "@primuslabs/zktls-js-sdk";
 import { BrowserProvider, Contract, JsonRpcProvider, ZeroAddress, getAddress, isAddress, keccak256, toUtf8Bytes } from "ethers";
 import { REGISTRY_ABI, toAttestationStruct } from "./registry-abi.js";
+import { initEffects, renderBeams } from "./effects.js";
 
 const $ = (id) => document.getElementById(id);
 const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
@@ -23,6 +24,7 @@ const state = {
   provenHandle: null,
   linked: null, // { handle, wallet, provedAtMs } for the connected wallet
   profile: null, // same shape, for PROFILE_HANDLE
+  recent: [], // live seals, newest first
   primus: new PrimusZKTLS(),
   primusReady: false,
   busy: false,
@@ -35,28 +37,22 @@ const state = {
 const short = (addr) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 const handleKey = (handle) => keccak256(toUtf8Bytes(handle.toLowerCase()));
 const formatDate = (ms) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const formatCount = (n) => new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 
 function timeAgo(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return "just now";
-  const units = [
+  for (const [name, size] of [
     ["day", 86400],
     ["hour", 3600],
     ["min", 60],
-  ];
-  for (const [name, size] of units) {
+  ]) {
     if (s >= size) {
       const n = Math.floor(s / size);
       return `${n} ${name}${n > 1 && name !== "min" ? "s" : ""} ago`;
     }
   }
   return "just now";
-}
-
-function formatAge(seconds) {
-  if (!seconds) return "1 hour";
-  if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`;
-  return `${Math.round(seconds / 60)} min`;
 }
 
 function explorerUrl(kind, value) {
@@ -78,11 +74,49 @@ function el(tag, attrs = {}, ...children) {
     if (k === "class") node.className = v;
     else node.setAttribute(k, v);
   }
-  node.append(...children.filter((c) => c != null));
+  node.append(...children.filter((c) => c != null && c !== false));
   return node;
 }
 
-const avatar = (handle) => el("div", { class: "avatar" }, handle ? handle[0] : "?");
+// ---------------------------------------------------------------------------
+// X profiles (display only, loaded through the app server and cached)
+// ---------------------------------------------------------------------------
+
+const profiles = new Map();
+function getProfile(handle) {
+  if (!handle) return Promise.resolve(null);
+  const key = handle.toLowerCase();
+  if (!profiles.has(key)) {
+    profiles.set(
+      key,
+      fetch(`/api/x-profile?handle=${encodeURIComponent(handle)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((p) => (p?.available ? p : null))
+        .catch(() => null),
+    );
+  }
+  return profiles.get(key);
+}
+
+/// Fills an .avatar element with the X picture when there is one, otherwise the first letter.
+function paintAvatar(node, handle) {
+  node.replaceChildren(handle ? handle[0] : "?");
+  node.classList.toggle("empty", !handle);
+  if (!handle) return;
+  getProfile(handle).then((p) => {
+    if (!p?.avatar || node.dataset.for !== handle.toLowerCase()) return;
+    const img = el("img", { src: p.avatar, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+    img.onerror = () => img.remove();
+    node.append(img);
+  });
+  node.dataset.for = handle.toLowerCase();
+}
+
+function avatar(handle) {
+  const node = el("div", { class: "avatar" });
+  paintAvatar(node, handle);
+  return node;
+}
 
 // ---------------------------------------------------------------------------
 // Status lines, banner, toast
@@ -94,7 +128,7 @@ function setStatus(id, content, kind = "") {
   const node = $(id);
   content = Array.isArray(content) ? content.map(noDot) : noDot(content);
   node.className = `status ${kind}`;
-  node.replaceChildren(...(Array.isArray(content) ? content : [content]));
+  node.replaceChildren(...(Array.isArray(content) ? content : [content]).filter((c) => c != null && c !== false));
 }
 
 function showBanner(text) {
@@ -119,7 +153,7 @@ const REVERT_MESSAGES = {
   WrongDataField: "This proof does not contain the X handle field",
   InvalidHandle: "The proof does not contain a valid X handle",
   StaleProof: "A newer proof for this handle is already saved",
-  NotLinked: "This wallet is not linked to any handle",
+  NotLinked: "This wallet is not sealed to any handle",
 };
 
 function explain(err) {
@@ -127,7 +161,7 @@ function explain(err) {
   if (!err) return "Something went wrong";
   // Primus SDK errors carry a numeric code and a readable message.
   if (typeof err.code === "string" && /^-?\d/.test(err.code) && err.message) {
-    return `${err.message} (code ${err.code}${err.subCode ? `:${err.subCode}` : ""})`;
+    return `${noDot(err.message)} (code ${err.code}${err.subCode ? `:${err.subCode}` : ""})`;
   }
   if (err.code === "ACTION_REJECTED" || err.code === 4001) return "You cancelled the request in your wallet";
   if (err.code === "INSUFFICIENT_FUNDS") return `Not enough ${state.config.chain.currency.symbol} in this wallet to pay for gas`;
@@ -169,9 +203,11 @@ async function readLink(handleOrWallet) {
 async function refreshStats() {
   if (!state.reader) return;
   try {
-    $("stat-count").textContent = (await state.reader.linkedCount()).toString();
+    const [count, proofs] = await Promise.all([state.reader.linkedCount(), state.reader.historyLength()]);
+    $("stat-count").textContent = count.toString();
+    $("stat-proofs").textContent = proofs.toString();
   } catch (err) {
-    console.warn("linkedCount failed", err);
+    console.warn("stats failed", err);
   }
 }
 
@@ -181,24 +217,14 @@ async function refreshRecent() {
   button.classList.add("spin");
   try {
     const records = await state.reader.recentLinks(30);
-    // Keep the newest record per wallet, and only links that are still current.
+    // Keep the newest record per wallet, and only seals that are still current.
     const seen = new Set();
     const newest = records.filter((r) => !seen.has(r.wallet) && seen.add(r.wallet));
     const current = await Promise.all(newest.map((r) => state.reader.handleOf(r.wallet)));
-    const live = newest.filter((r, i) => current[i].toLowerCase() === r.handle.toLowerCase()).slice(0, 8);
-
-    $("recent-list").replaceChildren(
-      ...live.map((r) =>
-        el(
-          "li",
-          {},
-          avatar(r.handle),
-          el("div", { class: "recent-who" }, el("a", { href: `/?handle=${r.handle}` }, `@${r.handle}`), el("span", {}, short(r.wallet))),
-          el("span", { class: "recent-time" }, timeAgo(Number(r.provedAtMs))),
-        ),
-      ),
-    );
-    $("recent-empty").hidden = live.length > 0;
+    state.recent = newest
+      .filter((r, i) => current[i].toLowerCase() === r.handle.toLowerCase())
+      .map((r) => ({ handle: r.handle, wallet: r.wallet, provedAtMs: Number(r.provedAtMs) }));
+    renderRecent();
   } catch (err) {
     console.warn("recentLinks failed", err);
   } finally {
@@ -221,8 +247,51 @@ async function refreshLinked() {
 // Rendering
 // ---------------------------------------------------------------------------
 
-function renderCard() {
-  // Profile page shows that handle; otherwise the connected wallet's link, otherwise an example.
+function renderRecent() {
+  const live = state.recent.slice(0, 8);
+
+  $("recent-list").replaceChildren(
+    ...live.map((r) =>
+      el(
+        "li",
+        {},
+        avatar(r.handle),
+        el(
+          "p",
+          { class: "tl-text" },
+          el("a", { href: `/?handle=${r.handle}` }, `@${r.handle}`),
+          " sealed to ",
+          el("span", { class: "mono" }, short(r.wallet)),
+          el("small", {}, timeAgo(r.provedAtMs)),
+        ),
+        el("a", { class: "tl-go", href: `/?handle=${r.handle}`, "aria-label": `Open @${r.handle}` }, "→"),
+      ),
+    ),
+  );
+  $("recent-empty").hidden = live.length > 0;
+
+  // Floating cards around the hero card
+  $("hero-floats").replaceChildren(
+    ...live
+      .slice(0, 2)
+      .map((r) => el("div", { class: "float-card" }, avatar(r.handle), el("div", {}, el("b", {}, `@${r.handle}`), el("small", {}, `sealed ${timeAgo(r.provedAtMs)}`)))),
+  );
+
+  // Marquee: live seals first, then a few words so the strip is never empty
+  const words = ["zkTLS proofs", "Primus attestors", "No passwords", "No OAuth", "Checked onchain", "Open source"];
+  const items = [
+    ...state.recent.slice(0, 12).map((r) => el("a", { class: "mq-item", href: `/?handle=${r.handle}` }, avatar(r.handle), `@${r.handle}`, el("span", {}, "sealed"))),
+    ...words.map((w) => el("span", { class: "mq-word" }, w)),
+  ];
+  const track = $("marquee-track");
+  track.replaceChildren(...items, ...items.map((n) => n.cloneNode(true)));
+  track.querySelectorAll(".avatar").forEach((node, i) => {
+    if (i >= Math.min(12, state.recent.length)) paintAvatar(node, node.dataset.for); // clones need their picture too
+  });
+}
+
+async function renderCard() {
+  // Profile page shows that handle; otherwise the connected wallet's seal, otherwise an example.
   let link = null;
   let mode = "example";
   if (PROFILE_HANDLE) {
@@ -234,14 +303,14 @@ function renderCard() {
   }
 
   const card = $("proof-card");
-  card.classList.toggle("example", mode === "example" || mode === "loading" || mode === "missing");
+  card.classList.toggle("example", mode !== "verified");
 
   const status = $("pc-status");
   status.className = `pc-status ${mode === "verified" ? "ok" : mode === "missing" ? "none" : ""}`;
   status.textContent = { verified: "Verified onchain", missing: "No seal yet", loading: "Checking…", example: "Example" }[mode];
 
   const handle = link?.handle ?? null;
-  $("pc-avatar").textContent = handle ? handle[0] : "?";
+  if ($("pc-avatar").dataset.for !== handle?.toLowerCase()) paintAvatar($("pc-avatar"), handle);
   $("pc-handle").textContent = handle ? `@${handle}` : "@your_handle";
   $("pc-wallet").textContent = link?.wallet ? link.wallet : mode === "missing" ? "No wallet yet" : "0x0000…0000";
   $("pc-date").textContent = link?.provedAtMs ? formatDate(link.provedAtMs) : "Not yet";
@@ -254,6 +323,15 @@ function renderCard() {
     $("pc-explorer").hidden = !explorer;
     if (explorer) $("pc-explorer").href = explorer;
   }
+
+  // X profile details when the profile service has them
+  const p = handle ? await getProfile(handle) : null;
+  if ((link?.handle ?? null) !== handle) return; // state changed while loading
+  $("pc-sub").textContent = p?.name || "X account";
+  $("pc-bio").hidden = !p?.bio;
+  $("pc-bio").textContent = p?.bio || "";
+  $("pc-third-label").textContent = p ? "Followers" : "Source";
+  $("pc-third").textContent = p ? formatCount(p.followers) : "api.x.com";
 }
 
 function renderHero() {
@@ -263,10 +341,7 @@ function renderHero() {
   const name = state.profile?.handle || PROFILE_HANDLE;
   document.title = `@${name} on HandleSeal`;
   $("hero-eyebrow").textContent = verified ? "Verified profile" : "Profile";
-  $("hero-title").replaceChildren(
-    `@${name} `,
-    el("span", { class: "accent" }, checking ? "…" : verified ? "is verified" : "is not sealed yet"),
-  );
+  $("hero-title").replaceChildren(`@${name} `, el("span", { class: "accent" }, checking ? "…" : verified ? "is verified" : "is not sealed yet"));
   $("hero-lede").textContent = checking
     ? "Checking the registry…"
     : verified
@@ -275,9 +350,28 @@ function renderHero() {
   $("hero-cta").replaceChildren(el("a", { class: "btn", href: "/#link" }, "Seal your own X handle"), el("a", { class: "btn btn-ghost", href: "/" }, "Home"));
 }
 
+function renderStepper(connected, savedAndIdle) {
+  const { account, attestation, provenHandle, linked } = state;
+  const handle = provenHandle || linked?.handle || null;
+  if ($("st-avatar").dataset.for !== handle?.toLowerCase()) paintAvatar($("st-avatar"), handle);
+  $("st-handle").textContent = handle ? `@${handle}` : "@your_handle";
+  $("st-wallet").textContent = account ? short(account) : "No wallet connected";
+
+  const chip = $("st-chip");
+  chip.className = `chip ${attestation ? "ready" : savedAndIdle ? "sealed" : ""}`;
+  chip.textContent = attestation ? "Proof ready" : savedAndIdle ? "Sealed" : "Not sealed";
+
+  $("step-1").className = `st-step ${connected ? "done" : "active"}`;
+  // After saving, step 2 stays open so a new proof can refresh the seal.
+  $("step-2").className = `st-step ${attestation ? "done" : savedAndIdle ? "done active" : connected ? "active" : ""}`;
+  $("step-3").className = `st-step ${savedAndIdle ? "done" : attestation ? "active" : ""}`;
+  $("prove").textContent = savedAndIdle ? "Make a new proof" : "Prove my X account";
+}
+
 function render() {
   const { config, account, onRightChain, attestation, linked, busy } = state;
   const connected = Boolean(account && onRightChain);
+  const savedAndIdle = connected && Boolean(linked) && !attestation;
 
   $("connect").textContent = account ? short(account) : "Connect wallet";
   $("connect-step").textContent = account && !onRightChain ? `Switch to ${config?.chain.name}` : "Connect wallet";
@@ -291,10 +385,7 @@ function render() {
   $("prove").disabled = !connected || busy || !config?.registry;
   $("save").disabled = !connected || busy || !attestation;
 
-  const savedAndIdle = connected && Boolean(linked) && !attestation;
-  $("step-1").className = `step ${connected ? "done" : "active"}`;
-  $("step-2").className = `step ${attestation || savedAndIdle ? "done" : connected ? "active" : ""}`;
-  $("step-3").className = `step ${savedAndIdle ? "done" : attestation ? "active" : ""}`;
+  renderStepper(connected, savedAndIdle);
 
   $("linked").hidden = !(connected && linked);
   $("linked-handle").textContent = linked ? `@${linked.handle}` : "";
@@ -447,7 +538,7 @@ async function prove() {
     state.attestation = attestation;
     state.provenHandle = handle;
     setStatus("status-2", `Proved you own @${handle}`, "ok");
-    setStatus("status-3", "Ready. Send one transaction to save the link");
+    setStatus("status-3", "Ready. Send one transaction to save the seal");
   } catch (err) {
     setStatus("status-2", explain(err), "err");
   } finally {
@@ -495,7 +586,7 @@ async function unlink() {
     const registry = new Contract(state.config.registry, REGISTRY_ABI, state.signer);
     const tx = await registry.unlink();
     await tx.wait();
-    setStatus("status-3", "Link removed", "ok");
+    setStatus("status-3", "Seal removed", "ok");
     await Promise.all([refreshLinked(), refreshStats(), refreshRecent()]);
   } catch (err) {
     setStatus("status-3", explain(err), "err");
@@ -523,22 +614,20 @@ async function lookup(event) {
   lookupResult(el("p", { class: "status busy" }, "Looking up…"));
   try {
     const link = await readLink(query);
-    if (!link.wallet || !link.handle) {
-      return lookupResult(
-        el("p", { class: "miss" }, isAddress(query) ? `${short(getAddress(query))} is not linked to any handle` : `@${query} is not linked to any wallet`),
-      );
-    }
+    const handle = link.handle || (isAddress(query) ? null : query);
+    const p = handle ? await getProfile(handle) : null;
+    const sealed = Boolean(link.wallet && link.handle);
+
+    if (!handle) return lookupResult(el("div", { class: "lk-card" }, avatar(null), el("div", { class: "lk-name" }, short(getAddress(query))), el("div", { class: "lk-line" }, "Not sealed to any handle")));
+
     lookupResult(
       el(
         "div",
-        { class: "hit" },
-        avatar(link.handle),
-        el(
-          "div",
-          { class: "recent-who" },
-          el("a", { href: `/?handle=${link.handle}` }, `@${link.handle}`),
-          el("span", {}, `${short(link.wallet)} · proved ${formatDate(link.provedAtMs)}`),
-        ),
+        { class: `lk-card ${sealed ? "hit" : ""}` },
+        avatar(handle),
+        el("div", { class: "lk-name" }, el("a", { href: `/?handle=${handle}` }, `@${handle}`), p?.name && el("small", {}, p.name)),
+        el("div", { class: "lk-line" }, sealed ? `Sealed to ${short(link.wallet)} · ${formatDate(link.provedAtMs)}` : "Not sealed to any wallet yet"),
+        p?.bio && el("p", { class: "lk-bio" }, p.bio),
       ),
     );
   } catch (err) {
@@ -577,16 +666,18 @@ async function start() {
     toast("Profile link copied");
   });
 
+  initEffects();
+  renderRecent();
   render();
+
   try {
     state.config = await api("/api/config");
   } catch (err) {
-    showBanner(`Could not reach the app server. Start it with "npm run dev". (${err.message})`);
+    showBanner(`Could not reach the app server (${err.message})`);
     return;
   }
 
   $("stat-network").textContent = state.config.chain.name;
-  $("stat-age").textContent = formatAge(state.config.maxProofAge);
   if (state.config.sourceUrl) {
     $("source-link").href = state.config.sourceUrl;
     $("source-link").hidden = false;
@@ -597,7 +688,7 @@ async function start() {
     const provider = new JsonRpcProvider(state.config.chain.rpcUrl, state.config.chain.id, { staticNetwork: true });
     state.reader = new Contract(state.config.registry, REGISTRY_ABI, provider);
   } else {
-    showBanner(`No contract is deployed on ${state.config.chain.name} yet. Run the deploy script, then reload`);
+    showBanner(`No contract is deployed on ${state.config.chain.name} yet`);
   }
 
   // The extension injects window.primus shortly after load.
@@ -611,6 +702,7 @@ async function start() {
   }
   await Promise.all([syncWallet().catch(console.error), loadProfile(), refreshStats(), refreshRecent()]);
   render();
+  renderBeams();
 }
 
 start();

@@ -7,26 +7,42 @@
     <meta name="description" content="Seal your X handle to your wallet. Prove you own the account with Primus zkTLS and record the link onchain" />
     <meta property="og:title" content="HandleSeal" />
     <meta property="og:description" content="Seal your X handle to your wallet with a Primus zkTLS proof" />
-    <meta name="theme-color" content="#0d0a08" />
+    <meta name="theme-color" content="#0b0907" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
+    <!-- Scroll progress and the large seal that drifts between sections -->
+    <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+    <div class="bg-seal" id="bg-seal" aria-hidden="true">
+      <svg viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="0.6" />
+        <circle class="bg-seal-ring" cx="32" cy="32" r="25.5" fill="none" stroke="currentColor" stroke-width="0.9" stroke-dasharray="1.6 3.1" stroke-linecap="round" />
+        <g transform="translate(32 32) scale(1.55) translate(-12 -12)" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94" />
+        </g>
+      </svg>
+    </div>
+
     <header class="top">
       <a class="brand" href="/">
         <img src="/logo.svg" alt="" width="30" height="30" />
         <span>HandleSeal</span>
       </a>
-      <nav class="nav">
-        <a href="/#recent">Recent</a>
-        <a href="/#how">How it works</a>
-        <a href="/#faq">FAQ</a>
+      <nav class="nav-pill" id="nav-pill" aria-label="Sections">
+        <span class="nav-ind" id="nav-ind" aria-hidden="true"></span>
+        <a href="/#top" data-section="top">Home</a>
+        <a href="/#link" data-section="link">Seal</a>
+        <a href="/#recent" data-section="recent">Recent</a>
+        <a href="/#how" data-section="how">How it works</a>
+        <a href="/#faq" data-section="faq">FAQ</a>
       </nav>
       <div class="top-right">
         <span id="network" class="pill" hidden><span class="dot"></span><span id="network-name"></span></span>
@@ -38,7 +54,8 @@
       <div id="banner" class="banner" hidden></div>
 
       <!-- Hero: on /?handle=name this becomes the public profile of that handle -->
-      <section class="hero">
+      <section class="hero" id="top" data-seal-pos="hero">
+        <div class="hero-grid" aria-hidden="true"></div>
         <div class="hero-copy">
           <p class="eyebrow"><img src="/primus-symbol.png" alt="" width="14" height="14" /><span id="hero-eyebrow">Built on Primus zkTLS</span></p>
           <h1 id="hero-title">Your X handle, <span class="accent">sealed to your wallet</span></h1>
@@ -52,12 +69,14 @@
           </div>
           <dl class="stats">
             <div><dt>Sealed handles</dt><dd id="stat-count">0</dd></div>
-            <div><dt>Proof lifetime</dt><dd id="stat-age">1 hour</dd></div>
+            <div><dt>Proofs checked</dt><dd id="stat-proofs">0</dd></div>
             <div><dt>Network</dt><dd id="stat-network">…</dd></div>
           </dl>
         </div>
 
         <div class="hero-card-wrap">
+          <div class="hero-floats" id="hero-floats" aria-hidden="true"></div>
+
           <article class="proof-card example" id="proof-card" aria-live="polite">
             <div class="pc-top">
               <span class="pc-chip">zkTLS proof</span>
@@ -67,11 +86,11 @@
               <div class="avatar" id="pc-avatar">?</div>
               <div class="pc-names">
                 <p class="pc-handle" id="pc-handle">@your_handle</p>
-                <p class="pc-sub">X account</p>
+                <p class="pc-sub" id="pc-sub">X account</p>
               </div>
             </div>
+            <p class="pc-bio" id="pc-bio" hidden></p>
             <div class="pc-bridge" aria-hidden="true">
-              <span class="pc-line"></span>
               <span class="pc-lock">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
               </span>
@@ -83,7 +102,7 @@
             </div>
             <dl class="pc-meta">
               <div><dt>Proved</dt><dd id="pc-date">Not yet</dd></div>
-              <div><dt>Source</dt><dd>api.x.com</dd></div>
+              <div><dt id="pc-third-label">Source</dt><dd id="pc-third">api.x.com</dd></div>
               <div><dt>Network</dt><dd id="pc-network">…</dd></div>
             </dl>
             <div class="pc-actions" id="pc-actions" hidden>
@@ -92,72 +111,109 @@
               <a class="btn btn-ghost btn-small" id="pc-explorer" target="_blank" rel="noreferrer" hidden>View onchain</a>
             </div>
           </article>
+
+          <a class="spin-badge" href="#link" aria-label="Seal your handle">
+            <svg viewBox="0 0 100 100" class="spin-text" aria-hidden="true">
+              <defs><path id="badge-circle" d="M 50,50 m -37,0 a 37,37 0 1,1 74,0 a 37,37 0 1,1 -74,0" /></defs>
+              <text><textPath href="#badge-circle">SEAL YOUR HANDLE • ZKTLS PROOF • ONCHAIN • </textPath></text>
+            </svg>
+            <img src="/logo.svg" alt="" width="40" height="40" />
+          </a>
         </div>
       </section>
 
-      <!-- Linking flow -->
-      <section class="section" id="link">
-        <div class="section-head">
+      <!-- Live seals marquee -->
+      <div class="marquee" aria-label="Recently sealed handles">
+        <div class="marquee-track" id="marquee-track"></div>
+      </div>
+
+      <!-- Sealing flow, as a stepper -->
+      <section class="section" id="link" data-seal-pos="left">
+        <div class="section-head center">
+          <p class="kicker">Three steps, one transaction</p>
           <h2>Seal your X handle</h2>
-          <p>Three steps, one transaction. Use a wallet you are happy to show next to your handle</p>
+          <p>Use a wallet you are happy to show next to your handle</p>
         </div>
 
-        <div id="linked" class="linked" hidden>
-          <p>This wallet is sealed to <strong id="linked-handle"></strong>. Make a new proof any time to refresh it</p>
-          <button id="unlink" class="btn btn-ghost btn-small">Remove link</button>
-        </div>
-
-        <div class="steps">
-          <article class="step" id="step-1">
-            <div class="step-head"><span class="num">1</span><h3>Connect your wallet</h3></div>
-            <p>The proof is made for this wallet, so only this wallet can use it</p>
-            <div class="step-actions">
-              <button id="connect-step" class="btn">Connect wallet</button>
-              <button id="fund" class="btn btn-ghost" hidden>Get 1 test ETH</button>
+        <div class="stepper">
+          <div class="st-head">
+            <div class="avatar" id="st-avatar">?</div>
+            <div class="st-who">
+              <p class="st-handle" id="st-handle">@your_handle</p>
+              <p class="st-wallet mono" id="st-wallet">No wallet connected</p>
             </div>
-            <p class="status" id="status-1"></p>
-          </article>
+            <span class="chip" id="st-chip">Not sealed</span>
+          </div>
 
-          <article class="step" id="step-2">
-            <div class="step-head"><span class="num">2</span><h3>Prove your X account</h3></div>
-            <p>
-              Log in to x.com in this browser. The
-              <a href="https://chromewebstore.google.com/detail/pado/oeiomhmbaapihbilkfkhmlajkeegnjhe" target="_blank" rel="noreferrer">Primus extension</a>
-              opens X, reads your handle and builds the proof
-            </p>
-            <div class="step-actions">
-              <button id="prove" class="btn" disabled>Prove my X account</button>
-            </div>
-            <p class="status" id="status-2"></p>
-          </article>
+          <ol class="st-steps">
+            <li class="st-step" id="step-1">
+              <span class="st-icon"><span>1</span></span>
+              <div class="st-body">
+                <h3>Connect your wallet</h3>
+                <p class="st-desc">The proof is made for this wallet, so only this wallet can use it</p>
+                <div class="st-actions">
+                  <button id="connect-step" class="btn">Connect wallet</button>
+                  <button id="fund" class="btn btn-ghost" hidden>Get 1 test ETH</button>
+                </div>
+                <p class="status" id="status-1"></p>
+              </div>
+            </li>
 
-          <article class="step" id="step-3">
-            <div class="step-head"><span class="num">3</span><h3>Save it onchain</h3></div>
-            <p>The contract checks the Primus signature, the wallet, the age of the proof and that it came from X</p>
-            <div class="step-actions">
-              <button id="save" class="btn" disabled>Save seal onchain</button>
-            </div>
-            <p class="status" id="status-3"></p>
-          </article>
+            <li class="st-step" id="step-2">
+              <span class="st-icon"><span>2</span></span>
+              <div class="st-body">
+                <h3>Prove your X account</h3>
+                <p class="st-desc">
+                  Log in to x.com in this browser. The
+                  <a href="https://chromewebstore.google.com/detail/pado/oeiomhmbaapihbilkfkhmlajkeegnjhe" target="_blank" rel="noreferrer">Primus extension</a>
+                  opens X, reads your handle and builds the proof
+                </p>
+                <div class="st-actions">
+                  <button id="prove" class="btn" disabled>Prove my X account</button>
+                </div>
+                <p class="status" id="status-2"></p>
+              </div>
+            </li>
+
+            <li class="st-step" id="step-3">
+              <span class="st-icon"><span>3</span></span>
+              <div class="st-body">
+                <h3>Save it onchain</h3>
+                <p class="st-desc">The contract checks the Primus signature, the wallet, the age of the proof and that it came from X</p>
+                <div class="st-actions">
+                  <button id="save" class="btn" disabled>Save seal onchain</button>
+                </div>
+                <p class="status" id="status-3"></p>
+              </div>
+            </li>
+          </ol>
+
+          <div class="st-foot" id="linked" hidden>
+            <p>This wallet is sealed to <strong id="linked-handle"></strong>. Make a new proof any time to refresh it</p>
+            <button id="unlink" class="btn btn-ghost btn-small">Remove seal</button>
+          </div>
         </div>
       </section>
 
-      <!-- Recent links and lookup -->
-      <section class="section split">
+      <!-- Recent seals and lookup -->
+      <section class="section split" data-seal-pos="right">
         <div class="card" id="recent">
           <div class="card-head">
-            <h2>Recently sealed</h2>
+            <div>
+              <h2>Recently sealed</h2>
+              <p class="muted">Read straight from the contract</p>
+            </div>
             <button class="icon-btn" id="recent-refresh" type="button" aria-label="Refresh">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 4v5h-5" /></svg>
             </button>
           </div>
-          <ul class="recent-list" id="recent-list"></ul>
+          <ul class="timeline" id="recent-list"></ul>
           <p class="empty" id="recent-empty">No seals yet. Be the first</p>
         </div>
 
-        <div class="card" id="lookup">
-          <h2>Look up a link</h2>
-          <p class="muted">Check which wallet owns a handle, or which handle a wallet proved</p>
+        <div class="card lookup" id="lookup">
+          <h2>Look up a handle</h2>
+          <p class="muted">See which wallet owns a handle, or which handle a wallet proved</p>
           <form id="lookup-form" class="lookup-form">
             <input id="lookup-input" type="text" placeholder="@handle or 0x address" autocomplete="off" spellcheck="false" />
             <button class="btn" type="submit">Look up</button>
@@ -167,11 +223,51 @@
       </section>
 
       <!-- How it works -->
-      <section class="section" id="how">
-        <div class="section-head">
-          <h2>How it works</h2>
+      <section class="section" id="how" data-seal-pos="center">
+        <div class="section-head center">
+          <p class="kicker">How it works</p>
+          <h2>Every piece meets in the seal</h2>
           <p>zkTLS turns the HTTPS response x.com sends you into a proof that anyone can check</p>
         </div>
+
+        <div class="beams" id="beams">
+          <svg class="beams-svg" id="beams-svg" aria-hidden="true"></svg>
+          <div class="beams-col">
+            <div class="node" data-beam="in">
+              <span class="node-dot"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.8 2.6 2.8 15.4 0 18M12 3c-2.8 2.6-2.8 15.4 0 18" /></svg></span>
+              <span class="node-label">x.com<small>your logged in session</small></span>
+            </div>
+            <div class="node" data-beam="in">
+              <span class="node-dot"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 9h18M7 6.5h.01M10 6.5h.01" /></svg></span>
+              <span class="node-label">Your browser<small>Primus extension</small></span>
+            </div>
+            <div class="node" data-beam="in">
+              <span class="node-dot"><img src="/primus-symbol.png" alt="" width="24" height="24" /></span>
+              <span class="node-label">Primus attestor<small>signs the proof</small></span>
+            </div>
+          </div>
+
+          <div class="beams-hub" id="beams-hub">
+            <img src="/logo.svg" alt="" width="64" height="64" />
+            <span>HandleSeal</span>
+          </div>
+
+          <div class="beams-col">
+            <div class="node right" data-beam="out">
+              <span class="node-dot"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8.5 5v10L12 22l-8.5-5V7z" /><path d="M12 22V12M20.5 7L12 12 3.5 7" /></svg></span>
+              <span class="node-label">Registry contract<small>checks six rules</small></span>
+            </div>
+            <div class="node right" data-beam="out">
+              <span class="node-dot"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2.5" /><path d="M3 10h18M16 15h2" /><path d="M6 6V4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V6" /></svg></span>
+              <span class="node-label">Your wallet<small>owns the seal</small></span>
+            </div>
+            <div class="node right" data-beam="out">
+              <span class="node-dot"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg></span>
+              <span class="node-label">Any app<small>reads who owns what</small></span>
+            </div>
+          </div>
+        </div>
+
         <ol class="flow">
           <li>
             <span class="flow-num">01</span>
@@ -186,7 +282,7 @@
           <li>
             <span class="flow-num">03</span>
             <h3>Verify</h3>
-            <p><code>XWalletRegistry</code> asks the Primus verifier to check the attestor signature, then applies its own rules before saving the link</p>
+            <p><code>XWalletRegistry</code> asks the Primus verifier to check the attestor signature, then applies its own rules before saving the seal</p>
           </li>
         </ol>
 
@@ -207,27 +303,34 @@
       </section>
 
       <!-- FAQ -->
-      <section class="section" id="faq">
-        <div class="section-head"><h2>Questions</h2></div>
+      <section class="section" id="faq" data-seal-pos="left">
+        <div class="section-head center">
+          <p class="kicker">FAQ</p>
+          <h2>Questions</h2>
+        </div>
         <div class="faq">
-          <details>
-            <summary>Does this app see my X password or cookies?</summary>
+          <details open>
+            <summary><span class="faq-num">01</span><span class="faq-q">Does this app see my X password or cookies?</span></summary>
             <p>No. The Primus extension talks to x.com in your browser. The proof that ends up onchain carries your handle and nothing else from your account: no headers, no cookies, no other fields</p>
           </details>
           <details>
-            <summary>Why do I need the Primus extension?</summary>
+            <summary><span class="faq-num">02</span><span class="faq-q">Why do I need the Primus extension?</span></summary>
             <p>It runs the zkTLS session with the Primus attestor, so the attestor can sign that the handle really came from x.com without seeing your login. Proofs work in desktop Chrome or Edge</p>
           </details>
           <details>
-            <summary>Can someone else claim my handle?</summary>
+            <summary><span class="faq-num">03</span><span class="faq-q">Can someone else claim my handle?</span></summary>
             <p>Only with a fresh proof from a logged in session of that X account. If an account changes hands, the newest proof wins and an older proof cannot undo it</p>
           </details>
           <details>
-            <summary>What does it cost?</summary>
+            <summary><span class="faq-num">04</span><span class="faq-q">Where do the profile pictures come from?</span></summary>
+            <p>Names and pictures are loaded from public X profile data for display only. The seal itself depends only on the zkTLS proof checked by the contract</p>
+          </details>
+          <details>
+            <summary><span class="faq-num">05</span><span class="faq-q">What does it cost?</span></summary>
             <p>One transaction. On the test network the gas is paid with free test tokens</p>
           </details>
           <details>
-            <summary>Is HandleSeal an official Primus product?</summary>
+            <summary><span class="faq-num">06</span><span class="faq-q">Is HandleSeal an official Primus product?</span></summary>
             <p>No. HandleSeal is a community project built on the public Primus zkTLS SDK and contracts. The code is open source</p>
           </details>
         </div>

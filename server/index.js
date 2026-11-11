@@ -7,7 +7,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import { readEnv, readDeployment, getConfig, signRequest, fundLocal, errorResponse } from "./core.js";
+import { readEnv, readDeployment, getConfig, signRequest, fundLocal, getXProfile, errorResponse } from "./core.js";
 
 let env;
 try {
@@ -34,6 +34,7 @@ const handle = (fn) => async (req, res) => {
 app.get("/api/config", handle(() => getConfig()));
 app.post("/api/sign", handle((req) => signRequest(req.body?.signParams)));
 app.post("/api/dev/fund", handle((req) => fundLocal(req.body?.address)));
+app.get("/api/x-profile", handle((req) => getXProfile(req.query.handle)));
 
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(root, "dist");

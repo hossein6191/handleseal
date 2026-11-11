@@ -65,8 +65,10 @@ web/                Vite web app (plain JS, ethers v6, @primuslabs/zktls-js-sdk)
 test/e2e-local.js   SDK encoding vs onchain encoding, full register flow on Anvil
 ```
 
-The site has a public profile for every handle at `/?handle=name`, a "Recently verified" list read from the
-contract (`recentLinks`), a lookup by handle or wallet, and a Share on X button after linking.
+The site has a public profile for every handle at `/?handle=name`, a "Recently sealed" timeline read from
+the contract (`recentLinks`), a lookup by handle or wallet, and a Share on X button after sealing. With an
+optional [twitterapi.io](https://twitterapi.io) key (`TWITTER_API_KEY`, server side only) it also shows X names,
+pictures and bios. That data is for display only and is cached for 6 hours; the seal depends only on the proof.
 
 ## Run it locally
 
@@ -110,8 +112,8 @@ browser wallet such as MetaMask, and you must be logged in to x.com in that brow
 
 1. Push the repo to GitHub and import it in Vercel. `vercel.json` already sets the build and the `api/`
    functions.
-2. In the Vercel project settings add the environment variables `PRIMUS_APP_ID`, `PRIMUS_APP_SECRET`,
-   `CHAIN_ID=97` and, optionally, `SOURCE_URL` (your GitHub repo URL).
+2. In the Vercel project settings add the environment variables `PRIMUS_APP_ID`, `PRIMUS_APP_SECRET` and,
+   optionally, `SOURCE_URL` (your GitHub repo URL) and `TWITTER_API_KEY`. `CHAIN_ID` defaults to 97 on Vercel.
 3. Deploy. If the Primus extension reports that the dApp is not registered (error `00009`), ask the Primus
    team to add your domain to the allowlist for your appId. Local development does not need this.
 

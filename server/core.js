@@ -83,6 +83,60 @@ export async function signRequest(signParams) {
   return { signResult: await primusSign(env.appSecret, signParams) };
 }
 
+// ---------------------------------------------------------------------------
+// X profiles (name, picture, bio) through twitterapi.io, for display only.
+// The seal itself never depends on this data.
+// ---------------------------------------------------------------------------
+
+const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
+const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
+const MISS_TTL_MS = 5 * 60 * 1000;
+const profileCache = new Map(); // lowercase handle -> { until, data }
+
+export async function getXProfile(handle) {
+  handle = String(handle ?? "").replace(/^@/, "");
+  if (!HANDLE_RE.test(handle)) throw new HttpError(400, "Invalid handle");
+  const apiKey = process.env.TWITTER_API_KEY?.trim();
+  if (!apiKey) return { available: false, reason: "not configured" };
+
+  const cacheKey = handle.toLowerCase();
+  const hit = profileCache.get(cacheKey);
+  if (hit && hit.until > Date.now()) return hit.data;
+
+  let data;
+  try {
+    const res = await fetch(`https://api.twitterapi.io/twitter/user/info?userName=${encodeURIComponent(handle)}`, {
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(6000),
+    });
+    const json = await res.json().catch(() => ({}));
+    const u = json?.data;
+    if (res.ok && u?.userName) {
+      const avatar = typeof u.profilePicture === "string" && u.profilePicture.startsWith("https://pbs.twimg.com/")
+        ? u.profilePicture.replace("_normal.", "_400x400.")
+        : null;
+      data = {
+        available: true,
+        handle: u.userName,
+        name: String(u.name ?? "").slice(0, 60),
+        avatar,
+        bio: String(u.description ?? "").slice(0, 200),
+        followers: Number(u.followers) || 0,
+        blueVerified: Boolean(u.isBlueVerified),
+      };
+    } else {
+      const reason = res.status === 402 ? "no credits" : res.status === 401 ? "bad key" : "not found";
+      if (res.status !== 404 && res.ok === false) console.warn(`X profile lookup failed (${res.status}): ${json?.message ?? ""}`);
+      data = { available: false, reason };
+    }
+  } catch (err) {
+    console.warn("X profile lookup failed:", err.message);
+    data = { available: false, reason: "lookup failed" };
+  }
+  profileCache.set(cacheKey, { until: Date.now() + (data.available ? PROFILE_TTL_MS : MISS_TTL_MS), data });
+  return data;
+}
+
 /// Local chain only: sends 1 test ETH from an Anvil account.
 export async function fundLocal(address) {
   const env = readEnv();
