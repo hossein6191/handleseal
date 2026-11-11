@@ -1,0 +1,8 @@
+{
+  "chainId": 97,
+  "deployBlock": 142115381,
+  "maxProofAge": 3600,
+  "officialVerifier": false,
+  "registry": "0x60D230207363dbE9F008a7460eDeD2984Fb4e320",
+  "verifier": "0x980201a11a460bE5213d75b708200C9A79BEf35B"
+}
