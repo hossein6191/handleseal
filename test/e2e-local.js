@@ -65,7 +65,7 @@ const attestation = {
     body: "",
   },
   reponseResolve: [{ keyName: "screen_name", parseType: "json", parsePath: "$.screen_name" }],
-  data: '{"screen_name":"Hellishnum1"}',
+  data: '{"screen_name":"sample_user"}',
   attConditions: "",
   timestamp: latest.timestamp * 1000,
   additionParams: "",
@@ -88,8 +88,8 @@ await step("Primus verifier accepts the attestor signature", async () => {
 await step("register() with the web app ABI links the handle", async () => {
   const registry = new ethers.Contract(registryAddr, REGISTRY_ABI, user);
   await (await registry.register(struct)).wait();
-  assert.equal(await registry.handleOf(userAddr), "Hellishnum1");
-  assert.equal(await registry.walletOf("@hellishnum1"), userAddr);
+  assert.equal(await registry.handleOf(userAddr), "sample_user");
+  assert.equal(await registry.walletOf("@sample_user"), userAddr);
 });
 
 await step("another wallet cannot reuse the proof (WrongRecipient)", async () => {
