@@ -12,6 +12,7 @@ export const CHAINS = {
     name: "BNB Smart Chain Testnet",
     rpcUrl: "https://bsc-testnet-rpc.publicnode.com",
     explorer: "https://testnet.bscscan.com",
+    faucet: "https://www.bnbchain.org/en/testnet-faucet",
     currency: { name: "Test BNB", symbol: "tBNB", decimals: 18 },
   },
   56: {

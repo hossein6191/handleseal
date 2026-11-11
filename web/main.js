@@ -29,6 +29,8 @@ const state = {
   primusReady: false,
   busy: false,
   disconnected: false,
+  rpc: null, // read-only provider for the configured chain
+  balance: null, // native balance of the connected wallet, as a bigint
 };
 
 // ---------------------------------------------------------------------------
@@ -477,6 +479,38 @@ function setDisconnected(value) {
   state.disconnected = value;
 }
 
+/// "Get free tBNB" link for chains that have a faucet.
+function faucetLink() {
+  const { faucet, currency } = state.config?.chain ?? {};
+  return faucet ? el("a", { href: faucet, target: "_blank", rel: "noreferrer" }, `Get free ${currency.symbol}`) : null;
+}
+
+const needsGas = () => state.balance === 0n;
+
+async function refreshBalance() {
+  state.balance = null;
+  if (!state.account || !state.onRightChain || !state.rpc) return;
+  try {
+    state.balance = await state.rpc.getBalance(state.account);
+  } catch (err) {
+    console.warn("balance check failed", err);
+  }
+}
+
+function showWalletStatus() {
+  const { account, onRightChain, config } = state;
+  if (account && !onRightChain) return setStatus("status-1", `Your wallet is on another network. Switch to ${config.chain.name}`, "err");
+  if (!account) return setStatus("status-1", "");
+  if (needsGas() && config.chain.faucet) {
+    return setStatus(
+      "status-1",
+      [`Connected as ${short(account)}. It has no ${config.chain.currency.symbol} to pay the small gas fee yet. `, faucetLink(), ", then come back"],
+      "warn",
+    );
+  }
+  setStatus("status-1", `Connected as ${short(account)}`, "ok");
+}
+
 async function syncWallet() {
   if (!window.ethereum) return;
   const provider = new BrowserProvider(window.ethereum);
@@ -494,11 +528,8 @@ async function syncWallet() {
   state.onRightChain = Number(network.chainId) === state.config.chain.id;
   state.signer = account && state.onRightChain ? await provider.getSigner(account) : null;
 
-  if (account && !state.onRightChain) setStatus("status-1", `Your wallet is on another network. Switch to ${state.config.chain.name}`, "err");
-  else if (account) setStatus("status-1", `Connected as ${short(account)}`, "ok");
-  else setStatus("status-1", "");
-
-  await refreshLinked();
+  await Promise.all([refreshLinked(), refreshBalance()]);
+  showWalletStatus();
   render();
 }
 
@@ -617,6 +648,13 @@ async function save() {
   try {
     const registry = new Contract(state.config.registry, REGISTRY_ABI, state.signer);
     const attestation = toAttestationStruct(state.attestation);
+
+    await refreshBalance();
+    if (needsGas() && state.config.chain.faucet) {
+      showWalletStatus();
+      setStatus("status-3", [`You need a little ${state.config.chain.currency.symbol} for gas. `, faucetLink(), ", then press Save again"], "warn");
+      return;
+    }
 
     setStatus("status-3", "Checking the proof against the contract…", "busy");
     await registry.register.staticCall(attestation); // surfaces contract errors before paying gas
@@ -760,9 +798,19 @@ async function start() {
   }
   renderContracts();
 
+  state.rpc = new JsonRpcProvider(state.config.chain.rpcUrl, state.config.chain.id, { staticNetwork: true });
+  if (state.config.chain.faucet) {
+    const faq = $("faq-cost");
+    faq.replaceChildren(`One transaction. On ${state.config.chain.name} the gas is paid with free test ${state.config.chain.currency.symbol} from the `, el("a", { href: state.config.chain.faucet, target: "_blank", rel: "noreferrer" }, "BNB Chain faucet"));
+  }
+  // Coming back from the faucet tab: check the balance again
+  addEventListener("focus", async () => {
+    if (!state.account || state.busy) return;
+    await refreshBalance();
+    showWalletStatus();
+  });
   if (state.config.registry) {
-    const provider = new JsonRpcProvider(state.config.chain.rpcUrl, state.config.chain.id, { staticNetwork: true });
-    state.reader = new Contract(state.config.registry, REGISTRY_ABI, provider);
+    state.reader = new Contract(state.config.registry, REGISTRY_ABI, state.rpc);
   } else {
     showBanner(`No contract is deployed on ${state.config.chain.name} yet`);
   }

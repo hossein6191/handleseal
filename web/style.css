@@ -1132,6 +1132,10 @@ h1 .accent {
   color: var(--err);
 }
 
+.status.warn {
+  color: #ffb36b;
+}
+
 .status.busy::before {
   content: "";
   display: inline-block;
