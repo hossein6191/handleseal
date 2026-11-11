@@ -390,9 +390,7 @@ function render() {
 
   $("prove").disabled = !connected || busy || !config?.registry;
   $("save").disabled = !connected || busy || !attestation;
-  if (connected && config && !config.registry) {
-    setStatus("status-2", `Proofs open once the HandleSeal contract is deployed on ${config.chain.name}`);
-  }
+  if (connected && config && !config.registry) setStatus("status-2", primusHint());
 
   renderStepper(connected, savedAndIdle);
 
@@ -600,6 +598,8 @@ async function fundLocal() {
 // ---------------------------------------------------------------------------
 
 function primusHint() {
+  const { config } = state;
+  if (config && !config.registry) return `Proofs open once the HandleSeal contract is deployed on ${config.chain.name}`;
   if (window.primus) return "";
   if (IS_MOBILE) return "Proofs need desktop Chrome or Edge with the Primus extension";
   return ["Primus extension not found. ", el("a", { href: INSTALL_URL, target: "_blank", rel: "noreferrer" }, "Install it"), ", then reload this page"];
