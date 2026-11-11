@@ -14,7 +14,8 @@
     "chain": "anvil --block-time 2",
     "deploy:local": "sh scripts/deploy.sh local",
     "deploy:bsc-testnet": "sh scripts/deploy.sh bsc_testnet",
-    "test:e2e": "sh scripts/forge.sh build && node test/e2e-local.js"
+    "test:e2e": "sh scripts/forge.sh build && node test/e2e-local.js",
+    "test:sign": "node test/sign-compat.js"
   },
   "dependencies": {
     "@primuslabs/zktls-js-sdk": "^0.3.15",

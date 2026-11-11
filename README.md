@@ -58,7 +58,7 @@ contracts/          Foundry project
   src/XWalletRegistry.sol
   test/XWalletRegistry.t.sol   20 tests against the real Primus verifier code
   script/Deploy.s.sol          writes contracts/deployments/<chainId>.json
-server/core.js      request signing and config, shared by both servers below
+server/core.js      request signing (same output as the SDK sign) and config, shared by both servers
 server/index.js     local Express server
 api/                the same endpoints as Vercel functions
 web/                Vite web app (plain JS, ethers v6, @primuslabs/zktls-js-sdk)
@@ -119,6 +119,7 @@ browser wallet such as MetaMask, and you must be logged in to x.com in that brow
 
 ```bash
 npm run test:contracts   # Foundry unit tests
+npm run test:sign        # server signing matches PrimusZKTLS.sign() from the SDK
 npm run test:e2e         # needs Anvil running: npm run chain
 ```
 

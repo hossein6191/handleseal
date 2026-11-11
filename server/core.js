@@ -54,24 +54,14 @@ export function getConfig() {
   };
 }
 
-// The SDK is loaded on first use, so /api/config keeps working even if it fails to load,
-// and the failure reaches the caller as a readable error.
-let primusPromise;
-function signer(env) {
-  primusPromise ??= (async () => {
-    let PrimusZKTLS;
-    try {
-      ({ PrimusZKTLS } = await import("@primuslabs/zktls-js-sdk"));
-    } catch (err) {
-      primusPromise = undefined;
-      console.error("Loading @primuslabs/zktls-js-sdk failed:", err);
-      throw new HttpError(500, `Could not load the Primus SDK on the server: ${err.message}`);
-    }
-    const primus = new PrimusZKTLS();
-    await primus.init(env.appId, env.appSecret); // app server mode, no extension needed
-    return primus;
-  })();
-  return primusPromise;
+/// Same output as PrimusZKTLS.sign() in @primuslabs/zktls-js-sdk 0.3.15 (checked by test/sign-compat.js):
+/// an EIP-191 signature, made with the appSecret, over keccak256 of the request string.
+/// Doing it here avoids loading the whole browser SDK (with its Solana and ethers v5 code) on the
+/// server, which crashed the Vercel functions.
+export async function primusSign(appSecret, signParams) {
+  const wallet = new ethers.Wallet(appSecret);
+  const appSignature = await wallet.signMessage(ethers.keccak256(ethers.toUtf8Bytes(signParams)));
+  return JSON.stringify({ attRequest: JSON.parse(signParams), appSignature });
 }
 
 /// Signs a zkTLS request, but only for this app, this template and a real wallet,
@@ -90,8 +80,7 @@ export async function signRequest(signParams) {
   if (!ethers.isAddress(request.userAddress) || request.userAddress === ethers.ZeroAddress) {
     throw new HttpError(400, "A wallet address is required");
   }
-  const signResult = await (await signer(env)).sign(signParams);
-  return { signResult };
+  return { signResult: await primusSign(env.appSecret, signParams) };
 }
 
 /// Local chain only: sends 1 test ETH from an Anvil account.
