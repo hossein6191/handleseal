@@ -26,30 +26,6 @@ export const REGISTRY_ABI = [
   "error NotLinked()",
 ];
 
-// ABI of contracts/src/GitHubRegistry.sol. Same read functions as the X registry, "handle" is the GitHub login.
-export const GITHUB_REGISTRY_ABI = [
-  `function register(${ATTESTATION} attestation)`,
-  "function unlink()",
-  "function handleOf(address wallet) view returns (string)",
-  "function walletOf(string login) view returns (address)",
-  "function linkedCount() view returns (uint256)",
-  "function historyLength() view returns (uint256)",
-  "function lastProofAt(bytes32 loginKey) view returns (uint64)",
-  "function recentLinks(uint256 count) view returns (tuple(address wallet, uint64 provedAtMs, string handle)[])",
-  "event Linked(address indexed wallet, string handle, uint64 proofTimestampMs)",
-  "event Unlinked(address indexed wallet, string handle)",
-  "error WrongRecipient()",
-  "error ProofExpired()",
-  "error ProofFromFuture()",
-  "error WrongDataSource()",
-  "error WrongDataField()",
-  "error WrongConditions()",
-  "error NotAUserAccount()",
-  "error InvalidHandle()",
-  "error StaleProof()",
-  "error NotLinked()",
-];
-
 // Copy only the fields the contract expects, in the shape ethers needs.
 export function toAttestationStruct(a) {
   return {

@@ -15,7 +15,6 @@ HandleSeal is a community project built on Primus zkTLS. Not an official Primus 
 | --- | --- |
 | Live app | [handleseal.vercel.app](https://handleseal.vercel.app) |
 | Registry contract | [`0x60D230207363dbE9F008a7460eDeD2984Fb4e320`](https://testnet.bscscan.com/address/0x60D230207363dbE9F008a7460eDeD2984Fb4e320) on BNB Smart Chain Testnet |
-| GitHub registry | [`0xF714BdFAdB7C64F3D9F134D14C7673d174C0029b`](https://testnet.bscscan.com/address/0xF714BdFAdB7C64F3D9F134D14C7673d174C0029b), same network, same verifier |
 | Primus verifier copy | [`0x980201a11a460bE5213d75b708200C9A79BEf35B`](https://testnet.bscscan.com/address/0x980201a11a460bE5213d75b708200C9A79BEf35B), same network |
 | First real seal | [Transaction 0x9041...17c6](https://testnet.bscscan.com/tx/0x90418627a7a5faea73db3c34ce6fa7fb36bbe78ae36c59c0191569967d4917c6) |
 | Primus pieces used | `@primuslabs/zktls-js-sdk` 0.3.15, `@primuslabs/zktls-contracts` 0.1.0, the X Account Ownership template |
@@ -48,35 +47,6 @@ checks of its own before it saves a seal.
 Handles are matched without case. The contract also keeps a count of active seals and a list of recent ones, which
 the site reads directly.
 
-## GitHub, the second source
-
-The same wallet can also seal a GitHub login. `GitHubRegistry` is a separate contract that uses the same Primus
-verifier copy, so the live X registry is unchanged. It has the same read functions (`handleOf`, `walletOf`,
-`recentLinks`), with the GitHub login as the handle.
-
-The proof uses a template made for HandleSeal in the Primus Developer Hub
-(`ae60b885-79c1-466c-8b99-edcde0091774`). GitHub pages make no request that returns just the logged-in login, so
-on `github.com/settings/profile` the template proves the response of
-`github.com/_filter/repositories?limit=3&q=&filter_value=`, the repo list GitHub shows the logged-in user, and
-reads two fields of the second repo: `owner` and `ownerType`. The template belongs to its own DApp project, so the
-server keeps a second appId and appSecret for it and signs each template only with the app that owns it.
-
-| Check | Stops |
-| --- | --- |
-| Signed by a trusted Primus attestor, made for the sending wallet, at most 1 hour old | forged, borrowed and replayed proofs |
-| Request URL is the template's repo list URL (more `&` parameters allowed) | proofs from other pages or templates |
-| The only fields are `$.repositories[1].owner` and `$.repositories[1].ownerType` | another position in the list or other data |
-| Every condition is `REVEAL_STRING` | a hashed or compared value standing in for a login |
-| `ownerType` is `User` | organization repos |
-| Login is 1 to 39 characters of `A-Z a-z 0-9 -`, not starting with `-` | malformed values |
-| Proof is newer than the last accepted one for that login | a previous owner taking a login back |
-
-**Known weak spot.** The repo list contains repos the user can access, not only repos they own. If the second repo
-in the list belongs to someone who added the user as a collaborator, the proof names that person's login, and
-the user could seal it to their own wallet. The site tells users to make sure the second repo is their own, but
-the contract cannot tell the difference. A template that reads the session user's login directly would close this
-gap; the GitHub pages I tried did not expose one.
-
 ## Live proof
 
 The first seal is a real Primus zkTLS attestation, made in the browser on the live site and accepted by the
@@ -93,16 +63,14 @@ contract in [transaction 0x9041...17c6](https://testnet.bscscan.com/tx/0x9041862
 
 ## Tests
 
-All four suites pass, and the contract tests run against the real Primus verifier code from
-`@primuslabs/zktls-contracts`. The GitHub cases use attestations shaped like the template's output, signed by a
-test attestor; no real GitHub attestation has been checked onchain yet.
+All three suites pass, and the contract tests run against the real Primus verifier code from
+`@primuslabs/zktls-contracts`.
 
 | Suite | Command | What it shows |
 | --- | --- | --- |
-| Contract tests, 39 cases | `npm run test:contracts` | every check above for both registries, relinking, unlink, recent seals |
-| End to end on Anvil | `npm run test:e2e` | the SDK's own `encodeAttestation` hash equals the onchain hash, and `register` works with the web app's ABI for X and GitHub, side by side on one verifier |
+| Contract tests, 20 cases | `npm run test:contracts` | every check above, relinking, unlink, recent seals |
+| End to end on Anvil | `npm run test:e2e` | the SDK's own `encodeAttestation` hash equals the onchain hash, and `register` works with the web app's ABI |
 | Server signing | `npm run test:sign` | the server's request signing is byte for byte the same as `PrimusZKTLS.sign()` |
-| Server rules | `npm run test:unit` | each template is signed only with the app that owns it, and the config never contains a secret |
 
 ## Run it locally
 
@@ -112,7 +80,7 @@ browser wallet.
 
 ```bash
 npm install
-cp .env.example .env   # add the Primus appId and appSecret of each template's DApp project
+cp .env.example .env   # add PRIMUS_APP_ID and PRIMUS_APP_SECRET from a DApp project in the Primus Developer Hub
 npm run dev            # local chain, contracts, API and web app on http://localhost:5173
 ```
 

@@ -602,11 +602,6 @@ h1 .accent {
   text-transform: uppercase;
 }
 
-/* GitHub avatars: square photos on a dark tile while they load */
-.avatar.gh {
-  background: linear-gradient(140deg, var(--surface-3), var(--surface-2));
-}
-
 .avatar img {
   position: absolute;
   inset: 0;

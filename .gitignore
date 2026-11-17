@@ -9,5 +9,4 @@ contracts/broadcast/
 .DS_Store
 # local anvil deployments change every run
 contracts/deployments/31337.json
-contracts/deployments/github-31337.json
 contracts/lib/

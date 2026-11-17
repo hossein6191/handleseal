@@ -40,7 +40,6 @@
         <span class="nav-ind" id="nav-ind" aria-hidden="true"></span>
         <a href="/#top" data-section="top">Home</a>
         <a href="/#link" data-section="link">Seal</a>
-        <a href="/#github" data-section="github">GitHub</a>
         <a href="/#recent" data-section="recent">Recent</a>
         <a href="/#how" data-section="how">How it works</a>
         <a href="/#faq" data-section="faq">FAQ</a>
@@ -70,8 +69,7 @@
           <h1 id="hero-title">Your X handle, <span class="accent">sealed to your wallet</span></h1>
           <p class="lede" id="hero-lede">
             Anyone can claim an X account next to a wallet. Here you prove it. Primus zkTLS reads your handle from
-            x.com inside your own browser, and a smart contract records the link only after checking the proof. Add
-            your GitHub login to the same wallet the same way
+            x.com inside your own browser, and a smart contract records the link only after checking the proof
           </p>
           <div class="hero-cta" id="hero-cta">
             <a class="btn" href="#link">Seal my X handle</a>
@@ -114,7 +112,6 @@
               <div><dt>Proved</dt><dd id="pc-date">Not yet</dd></div>
               <div><dt id="pc-third-label">Source</dt><dd id="pc-third">api.x.com</dd></div>
               <div><dt>Network</dt><dd id="pc-network">…</dd></div>
-              <div id="pc-github-row" hidden><dt>GitHub</dt><dd><a id="pc-github" target="_blank" rel="noreferrer"></a></dd></div>
             </dl>
             <div class="pc-actions" id="pc-actions" hidden>
               <a class="btn btn-small" id="pc-share" target="_blank" rel="noreferrer">Share on X</a>
@@ -206,61 +203,6 @@
         </div>
       </section>
 
-      <!-- GitHub, the second source, sealed to the same wallet -->
-      <section class="section" id="github" data-seal-pos="right">
-        <div class="section-head center">
-          <p class="kicker">Second source</p>
-          <h2>Add your GitHub</h2>
-          <p>Seal your GitHub login to the same wallet with its own zkTLS proof</p>
-        </div>
-
-        <div class="stepper">
-          <div class="st-head">
-            <div class="avatar gh" id="gh-avatar">?</div>
-            <div class="st-who">
-              <p class="st-handle" id="gh-login">github.com/your-login</p>
-              <p class="st-wallet mono" id="gh-wallet">No wallet connected</p>
-            </div>
-            <span class="chip" id="gh-chip">Not sealed</span>
-          </div>
-
-          <ol class="st-steps">
-            <li class="st-step" id="gh-step-1">
-              <span class="st-icon"><span>1</span></span>
-              <div class="st-body">
-                <h3>Prove your GitHub account</h3>
-                <p class="st-desc">
-                  Log in to github.com in this browser. The Primus extension opens your GitHub settings and proves the
-                  owner of the second repo in your own repo list, so you need at least two repos and the second one must
-                  be yours
-                </p>
-                <div class="st-actions">
-                  <button id="gh-prove" class="btn" disabled>Prove my GitHub account</button>
-                </div>
-                <p class="status" id="gh-status-1"></p>
-              </div>
-            </li>
-
-            <li class="st-step" id="gh-step-2">
-              <span class="st-icon"><span>2</span></span>
-              <div class="st-body">
-                <h3>Save it onchain</h3>
-                <p class="st-desc">The GitHub registry checks the Primus signature, the wallet, the age of the proof, that it came from your GitHub repo list and that the owner is a personal account</p>
-                <div class="st-actions">
-                  <button id="gh-save" class="btn" disabled>Save GitHub seal</button>
-                </div>
-                <p class="status" id="gh-status-2"></p>
-              </div>
-            </li>
-          </ol>
-
-          <div class="st-foot" id="gh-linked" hidden>
-            <p>This wallet is sealed to GitHub <strong id="gh-linked-login"></strong>. Make a new proof any time to refresh it</p>
-            <button id="gh-unlink" class="btn btn-ghost btn-small">Remove GitHub seal</button>
-          </div>
-        </div>
-      </section>
-
       <!-- Recent seals and lookup -->
       <section class="section split" data-seal-pos="right">
         <div class="card" id="recent">
@@ -279,9 +221,9 @@
 
         <div class="card lookup" id="lookup">
           <h2>Look up a handle</h2>
-          <p class="muted">See which wallet owns an X handle or a GitHub login, or what a wallet proved</p>
+          <p class="muted">See which wallet owns a handle, or which handle a wallet proved</p>
           <form id="lookup-form" class="lookup-form">
-            <input id="lookup-input" type="text" placeholder="@handle, gh:login or 0x address" autocomplete="off" spellcheck="false" />
+            <input id="lookup-input" type="text" placeholder="@handle or 0x address" autocomplete="off" spellcheck="false" />
             <button class="btn" type="submit">Look up</button>
           </form>
           <div class="lookup-result" id="lookup-result"></div>
@@ -396,11 +338,7 @@
             <p id="faq-cost">One transaction. On the test network the gas is paid with free test tokens</p>
           </details>
           <details>
-            <summary><span class="faq-num">06</span><span class="faq-q">How does the GitHub seal work, and what are its limits?</span></summary>
-            <p>GitHub pages show no request with just your login, so the GitHub template proves the repo list github.com shows you when you are logged in, and reads the owner of the second repo. The contract only accepts a personal account, not an organization. The limit: if that repo belongs to someone who added you as a collaborator, the proof names their login, so make sure the second repo in your list is your own</p>
-          </details>
-          <details>
-            <summary><span class="faq-num">07</span><span class="faq-q">Is HandleSeal an official Primus product?</span></summary>
+            <summary><span class="faq-num">06</span><span class="faq-q">Is HandleSeal an official Primus product?</span></summary>
             <p>No. HandleSeal is a community project built on the public Primus zkTLS SDK and contracts. The code is open source</p>
           </details>
         </div>
