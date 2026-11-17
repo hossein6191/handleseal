@@ -15,6 +15,7 @@ HandleSeal is a community project built on Primus zkTLS. Not an official Primus 
 | --- | --- |
 | Live app | [handleseal.vercel.app](https://handleseal.vercel.app) |
 | Registry contract | [`0x60D230207363dbE9F008a7460eDeD2984Fb4e320`](https://testnet.bscscan.com/address/0x60D230207363dbE9F008a7460eDeD2984Fb4e320) on BNB Smart Chain Testnet |
+| GitHub registry | [`0xF714BdFAdB7C64F3D9F134D14C7673d174C0029b`](https://testnet.bscscan.com/address/0xF714BdFAdB7C64F3D9F134D14C7673d174C0029b), same network, same verifier |
 | Primus verifier copy | [`0x980201a11a460bE5213d75b708200C9A79BEf35B`](https://testnet.bscscan.com/address/0x980201a11a460bE5213d75b708200C9A79BEf35B), same network |
 | First real seal | [Transaction 0x9041...17c6](https://testnet.bscscan.com/tx/0x90418627a7a5faea73db3c34ce6fa7fb36bbe78ae36c59c0191569967d4917c6) |
 | Primus pieces used | `@primuslabs/zktls-js-sdk` 0.3.15, `@primuslabs/zktls-contracts` 0.1.0, the X Account Ownership template |
