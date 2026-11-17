@@ -1,7 +1,9 @@
 #!/bin/sh
-# Deploys XWalletRegistry. Usage: sh scripts/deploy.sh <local|bsc_testnet|bsc>
+# Deploys XWalletRegistry. Usage: sh scripts/deploy.sh <local|bsc_testnet|bsc> [github]
+# With "github" it deploys only GitHubRegistry, next to the existing deployment and its verifier.
 set -e
 NETWORK=${1:-local}
+WHAT=${2:-x}
 cd "$(dirname "$0")/.."
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
@@ -24,4 +26,7 @@ if [ -z "$DEPLOYER_PRIVATE_KEY" ]; then
 fi
 
 export DEPLOYER_PRIVATE_KEY PRIMUS_VERIFIER
+if [ "$WHAT" = "github" ]; then
+  exec sh scripts/forge.sh script script/DeployGitHub.s.sol --rpc-url "$NETWORK" --broadcast
+fi
 exec sh scripts/forge.sh script script/Deploy.s.sol --rpc-url "$NETWORK" --broadcast

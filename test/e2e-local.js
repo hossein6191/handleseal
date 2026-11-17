@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { ethers } from "ethers";
 // Not exported by the package, so it is imported by path. This is the encoder the SDK uses in verifyAttestation.
 import { encodeAttestation } from "../node_modules/@primuslabs/zktls-js-sdk/dist/utils.js";
-import { REGISTRY_ABI, toAttestationStruct } from "../web/registry-abi.js";
+import { REGISTRY_ABI, GITHUB_REGISTRY_ABI, toAttestationStruct } from "../web/registry-abi.js";
 
 // Default Anvil accounts (public test keys)
 const KEYS = {
@@ -101,6 +101,46 @@ await step("a changed handle breaks the signature", async () => {
   const registry = new ethers.Contract(registryAddr, REGISTRY_ABI, user);
   const forged = { ...struct, data: '{"screen_name":"elonmusk"}' };
   await assert.rejects(registry.register.staticCall(forged), (err) => err.reason === "Invalid signature");
+});
+
+// GitHub: a second registry on the same verifier, fed by the GitHub ownership template.
+const ghDeployed = await deploy("GitHubRegistry.sol", "GitHubRegistry", deployer, [await verifier.getAddress(), 3600]);
+const ghAddr = await ghDeployed.getAddress();
+const ghLatest = await provider.getBlock("latest");
+const ghAttestation = {
+  recipient: userAddr,
+  request: { url: "https://github.com/_filter/repositories?limit=3&q=&filter_value=", header: "", method: "GET", body: "" },
+  reponseResolve: [
+    { keyName: "owner", parseType: "", parsePath: "$.repositories[1].owner" },
+    { keyName: "ownerType", parseType: "", parsePath: "$.repositories[1].ownerType" },
+  ],
+  data: '{"owner":"sample-dev","ownerType":"User"}',
+  attConditions: "",
+  timestamp: ghLatest.timestamp * 1000,
+  additionParams: "",
+  attestors: [{ attestorAddr, url: "https://primuslabs.xyz" }],
+  signatures: [],
+};
+ghAttestation.signatures = [new ethers.SigningKey(KEYS.attestor).sign(encodeAttestation(ghAttestation)).serialized];
+const ghStruct = toAttestationStruct(ghAttestation);
+
+await step("GitHub: register() with the web app ABI links the login, next to the X handle", async () => {
+  const registry = new ethers.Contract(ghAddr, GITHUB_REGISTRY_ABI, user);
+  await (await registry.register(ghStruct)).wait();
+  assert.equal(await registry.handleOf(userAddr), "sample-dev");
+  assert.equal(await registry.walletOf("Sample-Dev"), userAddr);
+  const x = new ethers.Contract(registryAddr, REGISTRY_ABI, provider);
+  assert.equal(await x.handleOf(userAddr), "sample_user", "the X seal is untouched");
+});
+
+await step("GitHub: another wallet cannot reuse the proof (WrongRecipient)", async () => {
+  const registry = new ethers.Contract(ghAddr, GITHUB_REGISTRY_ABI, wallet("other"));
+  await assert.rejects(registry.register.staticCall(ghStruct), (err) => err.revert?.name === "WrongRecipient");
+});
+
+await step("GitHub: an X proof is rejected by the GitHub registry (WrongDataSource)", async () => {
+  const registry = new ethers.Contract(ghAddr, GITHUB_REGISTRY_ABI, user);
+  await assert.rejects(registry.register.staticCall(struct), (err) => err.revert?.name === "WrongDataSource");
 });
 
 if (failed) {

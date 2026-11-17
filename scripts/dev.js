@@ -35,7 +35,8 @@ if (chainId === 31337) {
   }
   console.log("Deploying contracts to the local chain…");
   const deploy = spawnSync("sh", ["scripts/deploy.sh", "local"], { stdio: ["ignore", "ignore", "inherit"] });
-  if (deploy.status !== 0) {
+  const deployGitHub = deploy.status === 0 && spawnSync("sh", ["scripts/deploy.sh", "local", "github"], { stdio: ["ignore", "ignore", "inherit"] });
+  if (deploy.status !== 0 || deployGitHub.status !== 0) {
     console.error("Local deploy failed.");
     stop();
     process.exit(1);

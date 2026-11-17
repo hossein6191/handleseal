@@ -5,6 +5,8 @@ import { CHAINS } from "../web/chains.js";
 
 // "X Account Ownership" template from the Primus Developer Hub Templates Market.
 export const X_TEMPLATE_ID = "2e3160ae-8b1e-45e3-8c59-426366278b9d";
+// GitHub ownership template, made for HandleSeal in the Primus Developer Hub (the logged-in user's repo list).
+export const GITHUB_TEMPLATE_ID = "ae60b885-79c1-466c-8b99-edcde0091774";
 // First funded account of a default Anvil node. Public test key, local chain only.
 const ANVIL_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
@@ -20,6 +22,10 @@ export function readEnv() {
     appId: process.env.PRIMUS_APP_ID?.trim(),
     appSecret: process.env.PRIMUS_APP_SECRET?.trim(),
     templateId: process.env.PRIMUS_TEMPLATE_ID?.trim() || X_TEMPLATE_ID,
+    // A template can belong to another DApp project, so the GitHub template may have its own app credentials.
+    githubAppId: process.env.PRIMUS_GITHUB_APP_ID?.trim() || process.env.PRIMUS_APP_ID?.trim(),
+    githubAppSecret: process.env.PRIMUS_GITHUB_APP_SECRET?.trim() || process.env.PRIMUS_APP_SECRET?.trim(),
+    githubTemplateId: process.env.PRIMUS_GITHUB_TEMPLATE_ID?.trim() || GITHUB_TEMPLATE_ID,
     // Local runs default to Anvil, Vercel deployments to BNB Smart Chain Testnet.
     chainId: Number(process.env.CHAIN_ID || (process.env.VERCEL ? 97 : 31337)),
   };
@@ -31,10 +37,11 @@ export function readEnv() {
   return env;
 }
 
-export function readDeployment(chainId) {
+export function readDeployment(chainId, prefix = "") {
   // DEPLOYMENTS_DIR lets a second local instance use other contracts (handy for UI work with sample data).
   const dir = process.env.DEPLOYMENTS_DIR;
-  const file = dir ? `${dir.replace(/\/$/, "")}/${chainId}.json` : new URL(`../contracts/deployments/${chainId}.json`, import.meta.url);
+  const name = `${prefix}${chainId}.json`;
+  const file = dir ? `${dir.replace(/\/$/, "")}/${name}` : new URL(`../contracts/deployments/${name}`, import.meta.url);
   if (!existsSync(file)) return null;
   return JSON.parse(readFileSync(file, "utf8"));
 }
@@ -42,6 +49,7 @@ export function readDeployment(chainId) {
 export function getConfig() {
   const env = readEnv();
   const deployment = readDeployment(env.chainId);
+  const github = readDeployment(env.chainId, "github-");
   return {
     appId: env.appId, // public, the browser SDK needs it
     templateId: env.templateId,
@@ -50,6 +58,11 @@ export function getConfig() {
     verifier: deployment?.verifier ?? null,
     officialVerifier: deployment?.officialVerifier ?? false,
     maxProofAge: deployment?.maxProofAge ?? null,
+    github: {
+      appId: env.githubAppId,
+      templateId: env.githubTemplateId,
+      registry: github?.githubRegistry ?? null,
+    },
     sourceUrl: process.env.SOURCE_URL?.trim() || null,
   };
 }
@@ -64,8 +77,8 @@ export async function primusSign(appSecret, signParams) {
   return JSON.stringify({ attRequest: JSON.parse(signParams), appSignature });
 }
 
-/// Signs a zkTLS request, but only for this app, this template and a real wallet,
-/// so the secret cannot be used to sign anything else.
+/// Signs a zkTLS request, but only for one of this app's two templates (X or GitHub) with the app that
+/// owns it, and a real wallet, so the secrets cannot be used to sign anything else.
 export async function signRequest(signParams) {
   if (typeof signParams !== "string" || signParams.length > 8000) throw new HttpError(400, "signParams must be a string");
   let request;
@@ -75,12 +88,18 @@ export async function signRequest(signParams) {
     throw new HttpError(400, "signParams is not valid JSON");
   }
   const env = readEnv();
-  if (request.appId !== env.appId) throw new HttpError(400, "Wrong appId");
-  if (request.attTemplateID !== env.templateId) throw new HttpError(400, "Wrong template");
+  const app =
+    request.attTemplateID === env.templateId
+      ? { appId: env.appId, appSecret: env.appSecret }
+      : request.attTemplateID === env.githubTemplateId
+        ? { appId: env.githubAppId, appSecret: env.githubAppSecret }
+        : null;
+  if (!app) throw new HttpError(400, "Wrong template");
+  if (request.appId !== app.appId) throw new HttpError(400, "Wrong appId");
   if (!ethers.isAddress(request.userAddress) || request.userAddress === ethers.ZeroAddress) {
     throw new HttpError(400, "A wallet address is required");
   }
-  return { signResult: await primusSign(env.appSecret, signParams) };
+  return { signResult: await primusSign(app.appSecret, signParams) };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,10 +1,11 @@
 import { PrimusZKTLS } from "@primuslabs/zktls-js-sdk";
 import { BrowserProvider, Contract, JsonRpcProvider, ZeroAddress, getAddress, isAddress, keccak256, toUtf8Bytes } from "ethers";
-import { REGISTRY_ABI, toAttestationStruct } from "./registry-abi.js";
+import { REGISTRY_ABI, GITHUB_REGISTRY_ABI, toAttestationStruct } from "./registry-abi.js";
 import { initEffects, renderBeams } from "./effects.js";
 
 const $ = (id) => document.getElementById(id);
 const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
+const GH_LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const INSTALL_URL = "https://chromewebstore.google.com/detail/pado/oeiomhmbaapihbilkfkhmlajkeegnjhe";
 const IS_MOBILE = /android|iphone|ipad|mobile/i.test(navigator.userAgent);
 
@@ -31,6 +32,15 @@ const state = {
   disconnected: false,
   rpc: null, // read-only provider for the configured chain
   balance: null, // native balance of the connected wallet, as a bigint
+  // GitHub, the second source: its own Primus app, template and registry
+  gh: {
+    reader: null,
+    primus: new PrimusZKTLS(),
+    primusReady: false,
+    attestation: null,
+    provenLogin: null,
+    linked: null, // GitHub login sealed to the connected wallet
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -121,6 +131,30 @@ function avatar(handle) {
   const node = el("div", { class: "avatar" });
   paintAvatar(node, handle);
   return node;
+}
+
+/// GitHub avatar, loaded from github.com for display only.
+function paintGhAvatar(node, login) {
+  node.replaceChildren(login ? login[0].toUpperCase() : "?");
+  node.classList.toggle("empty", !login);
+  node.dataset.for = login?.toLowerCase() ?? "";
+  if (!login) return;
+  const img = el("img", { src: `https://github.com/${encodeURIComponent(login)}.png?size=104`, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+  img.onerror = () => img.remove();
+  node.append(img);
+}
+
+const ghUrl = (login) => `https://github.com/${encodeURIComponent(login)}`;
+
+/// GitHub login sealed to a wallet, or null.
+async function ghLoginOf(wallet) {
+  if (!state.gh.reader || !wallet) return null;
+  try {
+    return (await state.gh.reader.handleOf(wallet)) || null;
+  } catch (err) {
+    console.warn("GitHub handleOf failed", err);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +356,7 @@ async function renderCard() {
   $("pc-network").textContent = state.config?.chain.name ?? "…";
 
   $("pc-actions").hidden = mode !== "verified";
+  renderCardGitHub(mode === "verified" ? link.wallet : null);
   if (mode === "verified") {
     $("pc-share").href = shareUrl(link.handle);
     const explorer = explorerUrl("address", link.wallet);
@@ -337,6 +372,18 @@ async function renderCard() {
   $("pc-bio").textContent = p?.bio || "";
   $("pc-third-label").textContent = p ? "Followers" : "Source";
   $("pc-third").textContent = p ? formatCount(p.followers) : "api.x.com";
+}
+
+let cardGhFor = null;
+async function renderCardGitHub(wallet) {
+  cardGhFor = wallet;
+  const login = wallet ? await ghLoginOf(wallet) : null;
+  if (cardGhFor !== wallet) return; // changed while loading
+  $("pc-github-row").hidden = !login;
+  if (login) {
+    $("pc-github").textContent = login;
+    $("pc-github").href = ghUrl(login);
+  }
 }
 
 function renderHero() {
@@ -398,8 +445,28 @@ function render() {
   $("linked-handle").textContent = linked ? `@${linked.handle}` : "";
   $("unlink").disabled = busy;
 
+  renderGitHub(connected);
   renderCard();
   renderHero();
+}
+
+function renderGitHub(connected) {
+  const { gh, config, busy } = state;
+  const login = gh.provenLogin || gh.linked || null;
+  if ($("gh-avatar").dataset.for !== (login?.toLowerCase() ?? "")) paintGhAvatar($("gh-avatar"), login);
+  $("gh-login").textContent = login ? `github.com/${login}` : "github.com/your-login";
+  $("gh-wallet").textContent = state.account ? short(state.account) : "Connect your wallet in step 1 above";
+  const savedAndIdle = connected && Boolean(gh.linked) && !gh.attestation;
+  $("gh-chip").className = `chip ${gh.attestation ? "ready" : savedAndIdle ? "sealed" : ""}`;
+  $("gh-chip").textContent = gh.attestation ? "Proof ready" : savedAndIdle ? "Sealed" : "Not sealed";
+  $("gh-step-1").className = `st-step ${gh.attestation ? "done" : savedAndIdle ? "done active" : connected ? "active" : ""}`;
+  $("gh-step-2").className = `st-step ${savedAndIdle ? "done" : gh.attestation ? "active" : ""}`;
+  $("gh-prove").textContent = savedAndIdle ? "Make a new proof" : "Prove my GitHub account";
+  $("gh-prove").disabled = !connected || busy || !config?.github?.registry;
+  $("gh-save").disabled = !connected || busy || !gh.attestation;
+  $("gh-linked").hidden = !(connected && gh.linked);
+  $("gh-linked-login").textContent = gh.linked ?? "";
+  $("gh-unlink").disabled = busy;
 }
 
 function renderContracts() {
@@ -409,6 +476,8 @@ function renderContracts() {
     ["Registry", config.registry],
     ["Primus verifier", config.verifier && `${config.verifier}${config.officialVerifier ? " (official)" : " (demo copy)"}`],
     ["Template", config.templateId],
+    ["GitHub registry", config.github?.registry],
+    ["GitHub template", config.github?.registry && config.github.templateId],
   ];
   $("contracts").replaceChildren(
     ...rows
@@ -519,6 +588,9 @@ async function syncWallet() {
   if (account !== state.account) {
     state.attestation = null;
     state.provenHandle = null;
+    Object.assign(state.gh, { attestation: null, provenLogin: null });
+    setStatus("gh-status-1", "");
+    setStatus("gh-status-2", "");
     setStatus("status-2", primusHint());
     setStatus("status-3", "");
   }
@@ -526,7 +598,7 @@ async function syncWallet() {
   state.onRightChain = Number(network.chainId) === state.config.chain.id;
   state.signer = account && state.onRightChain ? await provider.getSigner(account) : null;
 
-  await Promise.all([refreshLinked(), refreshBalance()]);
+  await Promise.all([refreshLinked(), refreshBalance(), refreshGhLinked()]);
   showWalletStatus();
   render();
 }
@@ -557,6 +629,8 @@ async function disconnect() {
     // not supported, the local flag above is enough
   }
   Object.assign(state, { account: null, signer: null, onRightChain: false, attestation: null, provenHandle: null, linked: null });
+  Object.assign(state.gh, { attestation: null, provenLogin: null, linked: null });
+  for (const id of ["gh-status-1", "gh-status-2"]) setStatus(id, "");
   for (const id of ["status-1", "status-2", "status-3"]) setStatus(id, "");
   setStatus("status-2", primusHint());
   render();
@@ -699,6 +773,128 @@ async function unlink() {
 }
 
 // ---------------------------------------------------------------------------
+// GitHub proof and transactions
+// ---------------------------------------------------------------------------
+
+const GH_REVERT_MESSAGES = {
+  WrongDataSource: "This proof did not come from your GitHub repo list",
+  WrongDataField: "This proof does not have the owner fields of the GitHub template",
+  WrongConditions: "This proof hides or changes the GitHub login instead of revealing it",
+  NotAUserAccount: "The second repo in your GitHub list belongs to an organization. Make your own repo second, then prove again",
+  InvalidHandle: "The proof does not contain a valid GitHub login",
+  StaleProof: "A newer proof for this GitHub login is already saved",
+  NotLinked: "This wallet is not sealed to a GitHub login",
+};
+
+function ghExplain(err) {
+  const name = err?.revert?.name;
+  if (name && GH_REVERT_MESSAGES[name]) {
+    console.error(err);
+    return GH_REVERT_MESSAGES[name];
+  }
+  return explain(err);
+}
+
+async function refreshGhLinked() {
+  state.gh.linked = state.account ? await ghLoginOf(state.account) : null;
+}
+
+async function ghProve() {
+  const { gh, config } = state;
+  state.busy = true;
+  gh.attestation = null;
+  render();
+  setStatus("gh-status-2", "");
+  try {
+    if (!gh.primusReady) {
+      setStatus("gh-status-1", "Connecting to the Primus extension…", "busy");
+      await gh.primus.init(config.github.appId);
+      gh.primusReady = true;
+    }
+    setStatus("gh-status-1", "Preparing the proof request…", "busy");
+    const request = gh.primus.generateRequestParams(config.github.templateId, state.account);
+    request.setAttMode({ algorithmType: "proxytls" });
+    request.setCloseDataSourceOnProofComplete(true);
+    const { signResult } = await api("/api/sign", { signParams: request.toJsonString() });
+
+    setStatus("gh-status-1", "Building the proof. Finish any steps in the GitHub tab the extension opens…", "busy");
+    const attestation = await gh.primus.startAttestation(signResult);
+    console.log("Primus GitHub attestation", attestation);
+
+    if (!gh.primus.verifyAttestation(attestation)) throw new Error("The proof signature did not check out");
+    if (getAddress(attestation.recipient) !== state.account) throw new Error("The proof was made for a different wallet");
+
+    const data = JSON.parse(attestation.data);
+    if (data.ownerType !== "User") throw new Error(GH_REVERT_MESSAGES.NotAUserAccount);
+    if (!GH_LOGIN_RE.test(data.owner ?? "")) throw new Error(GH_REVERT_MESSAGES.InvalidHandle);
+    gh.attestation = attestation;
+    gh.provenLogin = data.owner;
+    setStatus("gh-status-1", `Proved you own github.com/${data.owner}`, "ok");
+    setStatus("gh-status-2", "Ready. Send one transaction to save the GitHub seal");
+  } catch (err) {
+    setStatus("gh-status-1", ghExplain(err), "err");
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function ghSave() {
+  const { gh, config } = state;
+  state.busy = true;
+  render();
+  try {
+    const registry = new Contract(config.github.registry, GITHUB_REGISTRY_ABI, state.signer);
+    const attestation = toAttestationStruct(gh.attestation);
+
+    await refreshBalance();
+    if (needsGas() && config.chain.faucet) {
+      showWalletStatus();
+      setStatus("gh-status-2", [`You need a little ${config.chain.currency.symbol} for gas. `, faucetLink(), ", then press Save again"], "warn");
+      return;
+    }
+
+    setStatus("gh-status-2", "Checking the proof against the contract…", "busy");
+    await registry.register.staticCall(attestation);
+    setStatus("gh-status-2", "Confirm the transaction in your wallet…", "busy");
+    const tx = await registry.register(attestation);
+    setStatus("gh-status-2", "Waiting for the transaction to be mined…", "busy");
+    await tx.wait();
+
+    const txUrl = explorerUrl("tx", tx.hash);
+    setStatus(
+      "gh-status-2",
+      [`Sealed: GitHub ${gh.provenLogin} is linked to ${short(state.account)}`, txUrl && " · ", txUrl && el("a", { href: txUrl, target: "_blank", rel: "noreferrer" }, "View transaction")],
+      "ok",
+    );
+    gh.attestation = null;
+    toast("GitHub seal saved onchain");
+    await refreshGhLinked();
+  } catch (err) {
+    setStatus("gh-status-2", ghExplain(err), "err");
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function ghUnlink() {
+  state.busy = true;
+  render();
+  try {
+    const registry = new Contract(state.config.github.registry, GITHUB_REGISTRY_ABI, state.signer);
+    await (await registry.unlink()).wait();
+    setStatus("gh-status-2", "GitHub seal removed", "ok");
+    await refreshGhLinked();
+  } catch (err) {
+    setStatus("gh-status-2", ghExplain(err), "err");
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Lookup
 // ---------------------------------------------------------------------------
 
@@ -708,7 +904,10 @@ function lookupResult(...children) {
 
 async function lookup(event) {
   event.preventDefault();
-  const query = $("lookup-input").value.trim().replace(/^@/, "");
+  const raw = $("lookup-input").value.trim();
+  const ghQuery = raw.match(/^(?:gh:|github:|(?:https?:\/\/)?github\.com\/)@?([A-Za-z0-9-]+)\/?$/i)?.[1];
+  if (ghQuery) return lookupGitHub(ghQuery);
+  const query = raw.replace(/^@/, "");
   if (!query) return;
   if (!state.reader) return lookupResult(el("p", { class: "err" }, "No contract deployed on this network yet"));
   if (!isAddress(query) && !HANDLE_RE.test(query)) return lookupResult(el("p", { class: "err" }, "That is not a valid X handle or wallet address"));
@@ -720,7 +919,14 @@ async function lookup(event) {
     const p = handle ? await getProfile(handle) : null;
     const sealed = Boolean(link.wallet && link.handle);
 
-    if (!handle) return lookupResult(el("div", { class: "lk-card" }, avatar(null), el("div", { class: "lk-name" }, short(getAddress(query))), el("div", { class: "lk-line" }, "Not sealed to any handle")));
+    const ghLogin = link.wallet ? await ghLoginOf(link.wallet) : null;
+    const ghLine = ghLogin && el("div", { class: "lk-line" }, "GitHub ", el("a", { href: ghUrl(ghLogin), target: "_blank", rel: "noreferrer" }, ghLogin));
+
+    if (!handle) {
+      return lookupResult(
+        el("div", { class: `lk-card ${ghLogin ? "hit" : ""}` }, avatar(null), el("div", { class: "lk-name" }, short(getAddress(query))), el("div", { class: "lk-line" }, ghLogin ? "No X handle sealed" : "Not sealed to any handle"), ghLine),
+      );
+    }
 
     lookupResult(
       el(
@@ -729,7 +935,39 @@ async function lookup(event) {
         avatar(handle),
         el("div", { class: "lk-name" }, el("a", { href: `/?handle=${handle}` }, `@${handle}`), p?.name && el("small", {}, p.name)),
         el("div", { class: "lk-line" }, sealed ? `Sealed to ${short(link.wallet)} · ${formatDate(link.provedAtMs)}` : "Not sealed to any wallet yet"),
+        sealed && ghLine,
         p?.bio && el("p", { class: "lk-bio" }, p.bio),
+      ),
+    );
+  } catch (err) {
+    lookupResult(el("p", { class: "err" }, explain(err)));
+  }
+}
+
+async function lookupGitHub(login) {
+  if (!GH_LOGIN_RE.test(login)) return lookupResult(el("p", { class: "err" }, "That is not a valid GitHub login"));
+  if (!state.gh.reader) return lookupResult(el("p", { class: "err" }, "No GitHub registry deployed on this network yet"));
+  lookupResult(el("p", { class: "status busy" }, "Looking up…"));
+  try {
+    const wallet = await state.gh.reader.walletOf(login);
+    const node = el("div", { class: "avatar gh" });
+    paintGhAvatar(node, login);
+    if (wallet === ZeroAddress) {
+      return lookupResult(el("div", { class: "lk-card" }, node, el("div", { class: "lk-name" }, el("a", { href: ghUrl(login), target: "_blank", rel: "noreferrer" }, login)), el("div", { class: "lk-line" }, "Not sealed to any wallet yet")));
+    }
+    const [sealedLogin, xHandle, provedAtMs] = await Promise.all([
+      state.gh.reader.handleOf(wallet),
+      state.reader ? state.reader.handleOf(wallet) : "",
+      state.gh.reader.lastProofAt(handleKey(login)),
+    ]);
+    lookupResult(
+      el(
+        "div",
+        { class: "lk-card hit" },
+        node,
+        el("div", { class: "lk-name" }, el("a", { href: ghUrl(sealedLogin), target: "_blank", rel: "noreferrer" }, sealedLogin), el("small", {}, "GitHub")),
+        el("div", { class: "lk-line" }, `Sealed to ${short(wallet)} · ${formatDate(Number(provedAtMs))}`),
+        xHandle && el("div", { class: "lk-line" }, "X ", el("a", { href: `/?handle=${xHandle}` }, `@${xHandle}`)),
       ),
     );
   } catch (err) {
@@ -771,6 +1009,9 @@ async function start() {
   $("prove").addEventListener("click", prove);
   $("save").addEventListener("click", save);
   $("unlink").addEventListener("click", unlink);
+  $("gh-prove").addEventListener("click", ghProve);
+  $("gh-save").addEventListener("click", ghSave);
+  $("gh-unlink").addEventListener("click", ghUnlink);
   $("lookup-form").addEventListener("submit", lookup);
   $("recent-refresh").addEventListener("click", refreshRecent);
   $("pc-copy").addEventListener("click", async () => {
@@ -809,6 +1050,9 @@ async function start() {
     await refreshBalance();
     showWalletStatus();
   });
+  if (state.config.github?.registry) {
+    state.gh.reader = new Contract(state.config.github.registry, GITHUB_REGISTRY_ABI, state.rpc);
+  }
   if (state.config.registry) {
     state.reader = new Contract(state.config.registry, REGISTRY_ABI, state.rpc);
   } else {
